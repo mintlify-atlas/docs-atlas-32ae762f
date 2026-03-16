@@ -1,0 +1,170 @@
+{
+  "projectType": "saas",
+  "projectName": "Pipedream",
+  "projectDescription": "An integration platform for developers that lets you connect APIs and build event-driven automations using pre-built components or custom Node.js, Python, Go, and Bash code.",
+  "theme": "palm",
+  "primaryColor": "#35d38c",
+  "lightColor": "#94eccc",
+  "darkColor": "#6b6f72",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Getting Started",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/workflows",
+              "concepts/event-sources",
+              "concepts/actions",
+              "concepts/custom-code",
+              "concepts/destinations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Workflows",
+        "groups": [
+          {
+            "group": "Building Workflows",
+            "pages": [
+              "workflows/overview",
+              "workflows/steps",
+              "workflows/triggers",
+              "workflows/data-stores"
+            ]
+          },
+          {
+            "group": "Custom Code",
+            "pages": [
+              "code/nodejs",
+              "code/python",
+              "code/go",
+              "code/bash"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Event Sources",
+        "groups": [
+          {
+            "group": "Using Event Sources",
+            "pages": [
+              "sources/overview",
+              "sources/triggers"
+            ]
+          },
+          {
+            "group": "Building Components",
+            "pages": [
+              "components/quickstart",
+              "components/api",
+              "components/guidelines"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Connect",
+        "groups": [
+          {
+            "group": "Pipedream Connect",
+            "pages": [
+              "connect/overview",
+              "connect/quickstart",
+              "connect/managed-auth"
+            ]
+          },
+          {
+            "group": "SDK",
+            "pages": [
+              "connect/sdk/server",
+              "connect/sdk/browser",
+              "connect/react"
+            ]
+          },
+          {
+            "group": "MCP Server",
+            "pages": [
+              "connect/mcp/overview",
+              "connect/mcp/developers"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/overview",
+              "api/auth",
+              "api/workflows",
+              "api/sources",
+              "api/accounts"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Platform",
+        "groups": [
+          {
+            "group": "Platform Details",
+            "pages": [
+              "platform/pricing",
+              "platform/limits",
+              "platform/security"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/overview",
+              "integrations/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "2,800+ pre-built app integrations and 10,000+ component actions",
+    "Event-driven workflow automation triggered by HTTP, timers, and third-party app events",
+    "Custom code support in Node.js, Python, Go, and Bash",
+    "Pipedream Connect: embed auth and actions into your own product via SDK",
+    "MCP Server: expose 10,000+ tools to AI agents via Model Context Protocol",
+    "Pre-built event sources for GitHub, Slack, Airtable, RSS, and thousands more",
+    "Destinations for async delivery to S3, Snowflake, HTTP, email, and SSE",
+    "Free tier with generous limits for individual developers"
+  ],
+  "publicApiSurface": [
+    "createBackendClient(opts: BackendClientOpts) — server-side Pipedream Connect client",
+    "createFrontendClient(opts) — browser-side Pipedream Connect client",
+    "BackendClient.createConnectToken(opts: ConnectTokenCreateOpts) — create a Connect token for external users",
+    "BackendClient.getAccountById(accountId, params) — retrieve a connected account",
+    "BackendClient.deleteAccount(accountId) — delete a connected account",
+    "BackendClient.deleteExternalUser(externalId) — delete all accounts for an external user",
+    "BackendClient.getProjectInfo() — retrieve project apps and info",
+    "BackendClient.makeProxyRequest(proxyOptions, targetRequest) — proxy API requests through Pipedream",
+    "ComponentFormContainer — React component for embedding app connection forms",
+    "FrontendClientProvider — React context provider for the frontend client",
+    "useAccounts() — React hook to list connected accounts",
+    "useApps() — React hook to list and filter available Pipedream apps",
+    "useComponent() / useComponents() — React hooks to retrieve actions and triggers",
+    "REST API: GET /v1/sources — list event sources",
+    "REST API: GET /v1/workflows — list workflows",
+    "REST API: POST /v1/connect/tokens — create a Connect token",
+    "SSE stream: /v1/sse — real-time event stream from sources"
+  ]
+}
