@@ -1,0 +1,181 @@
+---
+title: "Browser SDK"
+description: "Reference for `@pipedream/sdk/browser` — trigger OAuth flows and manage accounts from the browser."
+---
+
+## Installation
+
+```bash
+npm install @pipedream/sdk
+```
+
+Import from the `/browser` subpath. This module is safe to bundle for browser use. Never import `@pipedream/sdk/server` in browser code — that module contains your OAuth `clientSecret`.
+
+```typescript
+import { createFrontendClient } from "@pipedream/sdk/browser";
+```
+
+## `createFrontendClient(opts)`
+
+Returns a `BrowserClient` instance used to trigger OAuth flows and interact with the Connect API from the browser.
+
+```typescript
+const client = createFrontendClient({
+  environment: "development",
+  externalUserId: "user-123",
+  tokenCallback: async ({ externalUserId }) => {
+    const res = await fetch("/api/connect-token", {
+      method: "POST",
+      body: JSON.stringify({ externalUserId }),
+      headers: { "Content-Type": "application/json" },
+    });
+    return res.json(); // ConnectTokenResponse from your server
+  },
+});
+```
+
+### Options
+
+<ParamField body="externalUserId" type="string">
+  Your end user's ID. Passed to `tokenCallback` when the client needs a fresh token. Stored on the client as `client.externalUserId`.
+</ParamField>
+
+<ParamField body="tokenCallback" type="(opts: { externalUserId: string }) => Promise<ConnectTokenResponse>">
+  A function called whenever the client needs a Connect token. Should call your server-side endpoint that calls `client.createConnectToken()`. The callback receives the `externalUserId` and must return a `ConnectTokenResponse` (`{ token, expires_at, connect_link_url }`).
+
+  Tokens are cached until expiry — the callback is only invoked when the current token has expired.
+</ParamField>
+
+<ParamField body="environment" type="string">
+  Deprecated. The environment is set server-side when generating the connect token. This option has no effect and will be removed in a future version.
+</ParamField>
+
+<ParamField body="apiHost" type="string">
+  Override the API host. Defaults to `api.pipedream.com`. Not needed for standard use.
+</ParamField>
+
+---
+
+## `client.connectAccount(opts)`
+
+Opens the Pipedream Connect UI in an iframe for the specified app. The user is taken through the OAuth flow (or API key entry, for key-based apps). The iframe is removed automatically when the user closes the dialog.
+
+```typescript
+await client.connectAccount({
+  app: "slack",
+  onSuccess: ({ id }) => {
+    console.log("Connected account ID:", id);
+    // id is the Pipedream account ID (apn_xxxxxxx)
+    // pass it to your server to retrieve credentials or run actions
+  },
+  onError: (err) => {
+    console.error("Connection failed:", err.message);
+  },
+  onClose: ({ successful, completed }) => {
+    // Called when the user closes the Connect dialog
+    // successful: true if an account was connected
+    // completed: true if the flow finished (vs. user closed early)
+    if (!successful) {
+      console.log("User closed without connecting");
+    }
+  },
+});
+```
+
+### Options
+
+<ParamField body="app" type="string" required>
+  The app's name slug — a unique, human-readable identifier like `"slack"`, `"github"`, or `"google_sheets"`. Find it in the **Authentication** section of any app's page at [pipedream.com/apps](https://pipedream.com/apps).
+</ParamField>
+
+<ParamField body="oauthAppId" type="string">
+  Your custom OAuth App ID (`oa_xxxxxxx`) registered in Pipedream. When provided, Pipedream uses your OAuth client instead of Pipedream's own. See [Managed Auth](/connect/managed-auth) for setup.
+</ParamField>
+
+<ParamField body="token" type="string">
+  Provide a pre-fetched token directly. If omitted, the client calls `tokenCallback` automatically.
+</ParamField>
+
+<ParamField body="onSuccess" type="(res: { id: string }) => void">
+  Called when the user successfully connects an account. `res.id` is the Pipedream account ID (`apn_xxxxxxx`).
+</ParamField>
+
+<ParamField body="onError" type="(err: Error) => void">
+  Called if an error occurs during the connection process.
+</ParamField>
+
+<ParamField body="onClose" type="(status: { successful: boolean; completed: boolean }) => void">
+  Called when the Connect iframe is closed, regardless of outcome.
+
+  - `successful` — `true` if an account was connected.
+  - `completed` — `true` if the flow completed normally (vs. user dismissed the dialog mid-flow).
+</ParamField>
+
+---
+
+## `client.getAccounts(params?)`
+
+Retrieves connected accounts for the current external user. This calls the Pipedream Connect API from the browser using the cached token.
+
+```typescript
+const { data } = await client.getAccounts({ app: "slack" });
+for (const account of data) {
+  console.log(account.id, account.name, account.healthy);
+}
+```
+
+<ParamField query="app" type="string">
+  Filter by app name slug.
+</ParamField>
+
+<ParamField query="include_credentials" type="boolean">
+  Include raw credentials in the response. Use with caution in browser contexts.
+</ParamField>
+
+<Note>
+`getAccounts` in the browser client automatically scopes results to the external user associated with the current token. The `external_user_id` filter parameter from the server client is not available in the browser client.
+</Note>
+
+---
+
+## Token lifecycle
+
+The `BrowserClient` manages tokens transparently:
+
+1. On the first call that requires a token (e.g. `connectAccount`), it invokes `tokenCallback`.
+2. The token is cached in memory until the `expires_at` time.
+3. After an account is connected, `connectAccount` **invalidates** the cached token — OAuth flows are single-use. The next operation will call `tokenCallback` again for a fresh token.
+
+You don't need to manually refresh tokens; the client handles this automatically as long as `tokenCallback` is configured.
+
+---
+
+## Example: React hook
+
+Wrap `createFrontendClient` in a `useMemo` to avoid recreating the client on every render.
+
+```typescript
+import { useMemo } from "react";
+import { createFrontendClient } from "@pipedream/sdk/browser";
+
+function useConnectClient(externalUserId: string) {
+  return useMemo(
+    () =>
+      createFrontendClient({
+        environment: "development",
+        externalUserId,
+        tokenCallback: async ({ externalUserId }) => {
+          const res = await fetch("/api/connect-token", {
+            method: "POST",
+            body: JSON.stringify({ externalUserId }),
+            headers: { "Content-Type": "application/json" },
+          });
+          return res.json();
+        },
+      }),
+    [externalUserId],
+  );
+}
+```
+
+If you're using React and need more than just `connectAccount`, consider [`@pipedream/connect-react`](/connect/react), which provides pre-built components and hooks built on top of the browser SDK.

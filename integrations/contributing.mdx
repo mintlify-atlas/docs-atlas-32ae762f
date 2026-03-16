@@ -1,0 +1,186 @@
+---
+title: "Contributing integrations"
+description: "Build and publish new sources and actions to the Pipedream component registry."
+---
+
+All Pipedream integration components are open source and live in the [PipedreamHQ/pipedream](https://github.com/PipedreamHQ/pipedream) repository. You can contribute new sources and actions, fix bugs in existing components, or improve metadata.
+
+## Component types
+
+- **Sources** — emit events to trigger workflows (e.g., "New GitHub issue")
+- **Actions** — perform operations as workflow steps (e.g., "Send Slack message")
+
+## Directory structure
+
+Components live under `components/{app_name}/`:
+
+<Tree>
+  <Tree.Folder name="components" defaultOpen>
+    <Tree.Folder name="my_app" defaultOpen>
+      <Tree.File name="my_app.app.mjs" />
+      <Tree.Folder name="actions" defaultOpen>
+        <Tree.Folder name="my-action" defaultOpen>
+          <Tree.File name="my-action.mjs" />
+        </Tree.Folder>
+      </Tree.Folder>
+      <Tree.Folder name="sources" defaultOpen>
+        <Tree.Folder name="my-source" defaultOpen>
+          <Tree.File name="my-source.mjs" />
+        </Tree.Folder>
+      </Tree.Folder>
+    </Tree.Folder>
+  </Tree.Folder>
+</Tree>
+
+| File | Purpose |
+|------|---------|
+| `my_app.app.mjs` | App definition: auth props, reusable methods |
+| `actions/my-action/my-action.mjs` | Action component |
+| `sources/my-source/my-source.mjs` | Source component |
+
+## Naming conventions
+
+Component keys follow the pattern `{app}-{verb}-{noun}`:
+
+```
+github-new-issue          ✓
+slack-send-message        ✓
+create-issue              ✗  (missing app prefix)
+githubNewIssue            ✗  (use kebab-case)
+```
+
+## Contribution process
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork [PipedreamHQ/pipedream](https://github.com/PipedreamHQ/pipedream) on GitHub and clone your fork locally.
+
+    ```bash
+    git clone https://github.com/{your-username}/pipedream.git
+    cd pipedream
+    ```
+  </Step>
+  <Step title="Set up the development environment">
+    Install dependencies and configure the Pipedream CLI with your API key.
+
+    ```bash
+    pnpm install
+    export PD_API_KEY=your_api_key_here
+    ```
+
+    Alternatively, open the repo in Gitpod for a zero-install environment:
+
+    ```
+    https://gitpod.io/#https://github.com/{your-username}/pipedream
+    ```
+  </Step>
+  <Step title="Create your component">
+    Scaffold a new app or add components to an existing one. Create the file under `components/{app_name}/`.
+
+    **Minimal action example:**
+
+    ```javascript
+    export default {
+      key: "my_app-create-item",
+      name: "Create Item",
+      description: "Creates a new item in My App.",
+      version: "0.0.1",
+      type: "action",
+      props: {
+        myApp: {
+          type: "app",
+          app: "my_app",
+        },
+        name: {
+          type: "string",
+          label: "Item name",
+        },
+      },
+      async run({ steps, $ }) {
+        const response = await fetch("https://api.myapp.com/items", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.myApp.$auth.api_key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name: this.name }),
+        });
+        return response.json();
+      },
+    };
+    ```
+
+    **Minimal source example:**
+
+    ```javascript
+    export default {
+      key: "my_app-new-item",
+      name: "New Item",
+      description: "Emits an event when a new item is created in My App.",
+      version: "0.0.1",
+      type: "source",
+      dedupe: "unique",
+      props: {
+        myApp: {
+          type: "app",
+          app: "my_app",
+        },
+        db: "$.service.db",
+        timer: {
+          type: "$.interface.timer",
+          default: { intervalSeconds: 300 },
+        },
+      },
+      async run() {
+        const lastId = this.db.get("lastId") || 0;
+        const items = await this.myApp.getItems({ since_id: lastId });
+        for (const item of items) {
+          this.$emit(item, { id: item.id, summary: item.name });
+        }
+        if (items.length) {
+          this.db.set("lastId", items[items.length - 1].id);
+        }
+      },
+    };
+    ```
+  </Step>
+  <Step title="Test your component">
+    Deploy your component to your Pipedream account and verify it works end-to-end.
+
+    ```bash
+    pd deploy components/my_app/sources/new-item/new-item.mjs
+    ```
+  </Step>
+  <Step title="Open a pull request">
+    Push your branch to your fork and open a PR against `master` on the main repo.
+
+    ```bash
+    git checkout -b add-my-app-new-item
+    git add components/my_app/
+    git commit -m "feat(my_app): add new-item source"
+    git push origin add-my-app-new-item
+    ```
+
+    A member of the Pipedream team will review and merge your PR. You can also reach out in the [community forum](https://pipedream.com/community/c/dev/11) or on [Slack](https://pipedream.com/support).
+  </Step>
+</Steps>
+
+## Review guidelines
+
+- Follow the `{app}-{verb}-{noun}` key naming convention
+- Include `key`, `name`, `description`, `version`, and `type` in every component
+- Use `dedupe: "unique"` on sources that may emit duplicate events
+- Avoid hardcoding credentials — always use `props` for auth
+- Write descriptive `label` and `description` values for all props
+- Bump the `version` field on every change to an existing component
+
+## Getting help
+
+<Columns cols={2}>
+  <Card title="Community forum" icon="comments" href="https://pipedream.com/community/c/dev/11">
+    Ask questions and get feedback from the Pipedream team and community.
+  </Card>
+  <Card title="Component guidelines" icon="book" href="https://pipedream.com/docs/components/guidelines/">
+    Full guidelines covering props, auth, error handling, and more.
+  </Card>
+</Columns>

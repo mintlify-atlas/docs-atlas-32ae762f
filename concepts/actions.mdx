@@ -1,0 +1,177 @@
+---
+title: "Actions"
+description: "Actions are pre-built code steps you add to workflows to perform common operations across Pipedream's 2,800+ integrated apps."
+---
+
+Actions are reusable workflow steps that perform a specific operation — sending a Slack message, inserting a row in Google Sheets, creating a GitHub issue, making an HTTP request, and thousands more. They handle authentication, API calls, and error handling so you don't have to write that code yourself.
+
+Pipedream maintains a registry of 10,000+ pre-built action components. Actions are versioned, open-source, and available for anyone to use or improve.
+
+## Using actions in a workflow
+
+When building a workflow, click **+** after any step and search for an app or operation. Select an action to add it to the workflow. Pipedream renders a form for the action's inputs — fill them in, connect your account if needed, and the action is ready to run.
+
+Action inputs can be static values or dynamic references to previous step outputs:
+
+```
+{{steps.trigger.event.body.email}}
+```
+
+This expression pulls the `email` field from the trigger's request body and passes it as input to the action.
+
+## Building a custom action
+
+When no pre-built action exists for your use case, you can write one. Actions are JavaScript modules with a standard component structure:
+
+```javascript
+export default {
+  name: "Action Demo",
+  description: "This is a demo action",
+  key: "action_demo",
+  version: "0.0.1",
+  type: "action",
+  props: {
+    name: {
+      type: "string",
+      label: "Name",
+    },
+  },
+  async run() {
+    return `hello ${this.name}!`;
+  },
+};
+```
+
+### Component fields
+
+| Field | Description |
+|---|---|
+| `name` | Human-readable display name shown in the UI |
+| `description` | Short description of what the action does |
+| `key` | Unique identifier for the component (used in the registry) |
+| `version` | Semver version string |
+| `type` | Must be `"action"` |
+| `props` | Input parameters rendered as form fields in the UI |
+| `run()` | The function that executes when the step runs |
+
+### Accessing props in `run()`
+
+Props declared in the component are available as `this.<propName>` inside `run()`:
+
+```javascript
+export default {
+  name: "Format greeting",
+  key: "format_greeting",
+  version: "0.0.1",
+  type: "action",
+  props: {
+    firstName: {
+      type: "string",
+      label: "First name",
+    },
+    language: {
+      type: "string",
+      label: "Language",
+      options: ["English", "Spanish", "French"],
+      default: "English",
+    },
+  },
+  async run() {
+    const greetings = {
+      English: "Hello",
+      Spanish: "Hola",
+      French: "Bonjour",
+    };
+    return `${greetings[this.language]}, ${this.firstName}!`;
+  },
+};
+```
+
+### Connecting to an app
+
+To call an authenticated API, declare an `app` prop. Pipedream will prompt the user to connect their account, and the action receives the credentials at runtime:
+
+```javascript
+export default {
+  name: "Post to Slack",
+  key: "post_to_slack",
+  version: "0.0.1",
+  type: "action",
+  props: {
+    slack: {
+      type: "app",
+      app: "slack",
+    },
+    channel: {
+      type: "string",
+      label: "Channel",
+      description: "The Slack channel to post to, e.g. `#general`",
+    },
+    message: {
+      type: "string",
+      label: "Message text",
+    },
+  },
+  async run({ $ }) {
+    const response = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.slack.$auth.oauth_access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channel: this.channel,
+        text: this.message,
+      }),
+    });
+    return response.json();
+  },
+};
+```
+
+The `this.slack.$auth` object contains the credentials Pipedream stores for the connected account — OAuth tokens, API keys, or other auth fields depending on the app's authentication method.
+
+## Prop types
+
+Pipedream renders props as form fields in the workflow builder. Available types:
+
+| Type | UI control | Description |
+|---|---|---|
+| `string` | Text input | A single-line string |
+| `string[]` | Multi-value input | An array of strings |
+| `integer` | Number input | An integer |
+| `boolean` | Toggle | `true` or `false` |
+| `object` | Key-value editor | A JSON object |
+| `app` | Account selector | A connected app account |
+
+Every prop supports optional metadata:
+
+```javascript
+myProp: {
+  type: "string",
+  label: "Display label",
+  description: "Shown as helper text below the input",
+  optional: true,           // not required to run the action
+  default: "default value",
+  options: ["opt1", "opt2"], // renders as a select dropdown
+},
+```
+
+## Reusing actions across workflows
+
+Once you create a custom action, it appears in your personal component library. You can add it to any workflow — changes you make to the action propagate to all workflows that use it (when you increment the version).
+
+You can also publish actions to the public Pipedream registry so the whole community can use them.
+
+## Contributing actions
+
+All pre-built actions live in [the Pipedream GitHub repository](https://github.com/PipedreamHQ/pipedream) under `components/`. To contribute:
+
+1. Fork the repo and find the app's directory under `components/`
+2. Add or update the action file
+3. Test with the [Pipedream CLI](https://pipedream.com/docs/cli/reference/)
+4. Open a pull request — the Pipedream team will review and merge
+
+<Note>
+  See the full [component guidelines](https://pipedream.com/docs/components/guidelines/) for naming conventions, prop labeling standards, and the PR review process.
+</Note>

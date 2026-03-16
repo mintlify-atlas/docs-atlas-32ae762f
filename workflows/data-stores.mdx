@@ -1,0 +1,270 @@
+---
+title: "Data Stores"
+description: "Data Stores are persistent key-value stores scoped to a workflow or project. Use them to track state across executions — deduplication, counters, caches, feature flags, and more."
+keywords: ["data store", "key-value", "persistent state", "deduplication", "cache", "TTL"]
+---
+
+By default, each workflow execution is stateless. Data Stores give you a simple, durable key-value store so you can remember what happened in previous executions.
+
+## Adding a data store to a step
+
+Declare a `data_store` prop in your component. Pipedream renders a dropdown in the workflow editor so you can select an existing store or create a new one.
+
+```javascript
+export default defineComponent({
+  props: {
+    data: { type: "data_store" },
+  },
+  async run({ steps, $ }) {
+    await this.data.set("last_run", new Date().toISOString());
+    return await this.data.get("last_run");
+  },
+});
+```
+
+## Operations
+
+### `get(key)`
+
+Returns the value for a key, or `undefined` if the key doesn't exist.
+
+```javascript
+const user = await this.data.get("user:42");
+if (!user) {
+  // first time we've seen this user
+}
+```
+
+### `set(key, value, options?)`
+
+Stores any JSON-serializable value. Optionally set a TTL in seconds.
+
+```javascript
+// Store indefinitely
+await this.data.set("config", { retries: 3, timeout: 5000 });
+
+// Expire after 1 hour
+await this.data.set("rate_limit:ip:203.0.113.42", true, { ttl: 3600 });
+
+// Expire after 7 days
+await this.data.set("session:abc", { userId: 42, role: "admin" }, { ttl: 604800 });
+```
+
+### `has(key)`
+
+Returns `true` if the key exists.
+
+```javascript
+if (await this.data.has("feature_flags")) {
+  const flags = await this.data.get("feature_flags");
+}
+```
+
+### `delete(key)`
+
+Removes a single key.
+
+```javascript
+await this.data.delete("session:abc");
+```
+
+### `keys()`
+
+Returns an array of all keys in the store.
+
+```javascript
+const allKeys = await this.data.keys();
+const sessionKeys = allKeys.filter(k => k.startsWith("session:"));
+```
+
+### `getMany(keys)`
+
+Fetch multiple values in a single call.
+
+```javascript
+const userIds = ["user:1", "user:2", "user:3"];
+const users = await this.data.getMany(userIds);
+// { "user:1": {...}, "user:2": {...}, "user:3": undefined }
+```
+
+### `items()`
+
+Returns an object of all key-value pairs.
+
+```javascript
+const snapshot = await this.data.items();
+console.log(`Store has ${Object.keys(snapshot).length} records`);
+```
+
+### `setTtl(key, seconds)`
+
+Set or update the TTL on an existing key without changing its value.
+
+```javascript
+// Extend a session's expiry by another hour
+await this.data.setTtl("session:abc", 3600);
+```
+
+## Supported data types
+
+Data Stores store any JSON-serializable value:
+
+- Strings: `"hello"`
+- Numbers: `42`, `3.14`
+- Booleans: `true`, `false`
+- Arrays: `[1, 2, 3]`
+- Objects: `{ name: "Alice", role: "admin" }`
+- `null`
+
+<Warning>
+  Functions, `undefined`, `Date` objects, and circular references are not serializable and cannot be stored.
+</Warning>
+
+## Common patterns
+
+### Deduplication
+
+Prevent a workflow from processing the same event twice — useful with app event triggers that may re-emit.
+
+```javascript
+export default defineComponent({
+  props: {
+    data: { type: "data_store" },
+  },
+  async run({ steps, $ }) {
+    const eventId = steps.trigger.event.id;
+    const dedupKey = `processed:${eventId}`;
+
+    if (await this.data.has(dedupKey)) {
+      $.flow.exit(`Already processed event ${eventId}`);
+    }
+
+    // Mark as processed; expire after 30 days
+    await this.data.set(dedupKey, true, { ttl: 2592000 });
+
+    return { eventId, status: "processing" };
+  },
+});
+```
+
+### Incrementing a counter
+
+```javascript
+export default defineComponent({
+  props: {
+    data: { type: "data_store" },
+  },
+  async run({ steps, $ }) {
+    const key    = `counter:${steps.trigger.event.body.metric}`;
+    const current = (await this.data.get(key)) ?? 0;
+    const next    = current + 1;
+
+    await this.data.set(key, next);
+    return { metric: steps.trigger.event.body.metric, count: next };
+  },
+});
+```
+
+### Accumulating records and batch flushing
+
+Collect events during a window, then process them in bulk when the batch is large enough.
+
+```javascript
+export default defineComponent({
+  props: {
+    data:        { type: "data_store" },
+    batchSize:   { type: "integer", label: "Batch size", default: 50 },
+    slack:       { type: "app", app: "slack" },
+  },
+  async run({ steps, $ }) {
+    const queue = (await this.data.get("event_queue")) ?? [];
+    queue.push(steps.trigger.event.body);
+
+    if (queue.length < this.batchSize) {
+      await this.data.set("event_queue", queue);
+      $.flow.exit(`Queued ${queue.length}/${this.batchSize} events`);
+    }
+
+    // Batch is full — process and clear
+    await this.data.delete("event_queue");
+    return { flushed: queue.length, events: queue };
+  },
+});
+```
+
+### Feature flags
+
+```javascript
+export default defineComponent({
+  props: {
+    data: { type: "data_store" },
+  },
+  async run({ steps, $ }) {
+    const flags = (await this.data.get("feature_flags")) ?? {};
+    const userId = steps.trigger.event.body.userId;
+
+    // Check multiple flags at once
+    return {
+      newCheckout:   flags.new_checkout   ?? false,
+      betaDashboard: flags.beta_dashboard ?? false,
+      aiSuggestions: flags.ai_suggestions ?? false,
+      userId,
+    };
+  },
+});
+```
+
+### Caching API responses
+
+Avoid redundant API calls by caching results with a TTL.
+
+```javascript
+export default defineComponent({
+  props: {
+    data: { type: "data_store" },
+  },
+  async run({ steps, $ }) {
+    const ticker  = steps.trigger.event.body.ticker;
+    const cacheKey = `price:${ticker}`;
+
+    const cached = await this.data.get(cacheKey);
+    if (cached) {
+      return { ...cached, source: "cache" };
+    }
+
+    const res = await fetch(
+      `https://api.example.com/quote?symbol=${ticker}`,
+      { headers: { Authorization: `Bearer ${process.env.MARKET_API_KEY}` } }
+    );
+    const quote = await res.json();
+
+    // Cache for 60 seconds
+    await this.data.set(cacheKey, quote, { ttl: 60 });
+    return { ...quote, source: "api" };
+  },
+});
+```
+
+## TTL reference
+
+| Duration | Seconds |
+|---|---|
+| 1 minute | `60` |
+| 1 hour | `3600` |
+| 1 day | `86400` |
+| 1 week | `604800` |
+| 30 days | `2592000` |
+| 1 year | `31536000` |
+
+## Accessing data stores from the dashboard
+
+All data stores are visible in the **Pipedream dashboard** under [pipedream.com/data-stores](https://pipedream.com/data-stores). From there you can:
+
+- Browse keys and values
+- Create, update, and delete records manually
+- Export the store as JSON
+- Monitor store size
+
+<Tip>
+  Data Stores are scoped per project. Two workflows in the same project can share a Data Store — useful for passing state between a source workflow and a processing workflow.
+</Tip>

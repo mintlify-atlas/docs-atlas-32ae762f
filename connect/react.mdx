@@ -1,0 +1,392 @@
+---
+title: "React Components"
+description: "Reference for `@pipedream/connect-react` — drop-in components and hooks for connecting accounts and configuring API actions."
+---
+
+## Installation
+
+```bash
+npm install @pipedream/connect-react @pipedream/sdk
+```
+
+`@pipedream/connect-react` requires `@pipedream/sdk` as a peer dependency.
+
+---
+
+## Quick start
+
+This example uses Next.js App Router with server actions to securely create tokens on the server and render an action form on the client.
+
+```typescript
+/* actions.ts — server side */
+"use server";
+import { createBackendClient } from "@pipedream/sdk/server";
+
+const client = createBackendClient({
+  environment: process.env.NODE_ENV,
+  projectId: process.env.PIPEDREAM_PROJECT_ID,
+  credentials: {
+    clientId: process.env.PIPEDREAM_CLIENT_ID,
+    clientSecret: process.env.PIPEDREAM_CLIENT_SECRET,
+  },
+});
+
+export async function fetchToken(opts: { externalUserId: string }) {
+  return await client.createConnectToken({
+    external_user_id: opts.externalUserId,
+    allowed_origins: JSON.parse(process.env.PIPEDREAM_ALLOWED_ORIGINS || "[]"),
+  });
+}
+```
+
+```tsx
+/* page.tsx — client side */
+"use client";
+import { useState } from "react";
+import { createFrontendClient } from "@pipedream/sdk/browser";
+import { ComponentFormContainer, FrontendClientProvider } from "@pipedream/connect-react";
+import { fetchToken } from "./actions";
+
+export default function Page() {
+  const userId = "my-authed-user-id";
+  const client = createFrontendClient({
+    environment: "development",
+    externalUserId: userId,
+    tokenCallback: fetchToken,
+  });
+  const [configuredProps, setConfiguredProps] = useState({});
+
+  return (
+    <FrontendClientProvider client={client}>
+      <ComponentFormContainer
+        userId={userId}
+        componentKey="slack-send-message"
+        configuredProps={configuredProps}
+        onUpdateConfiguredProps={setConfiguredProps}
+      />
+    </FrontendClientProvider>
+  );
+}
+```
+
+---
+
+## Providers
+
+### `FrontendClientProvider`
+
+Required wrapper component. Provides the `BrowserClient` instance to all child components and hooks.
+
+```tsx
+import { FrontendClientProvider } from "@pipedream/connect-react";
+
+<FrontendClientProvider client={client}>
+  {/* child components */}
+</FrontendClientProvider>
+```
+
+<ParamField body="client" type="BrowserClient" required>
+  A `BrowserClient` instance created with `createFrontendClient` from `@pipedream/sdk/browser`.
+</ParamField>
+
+### `CustomizeProvider`
+
+Optional wrapper for styling and theming. Wrap it inside `FrontendClientProvider`.
+
+```tsx
+<FrontendClientProvider client={client}>
+  <CustomizeProvider
+    theme={{ borderRadius: 0, colors: { primary: "hsl(200, 100%, 60%)" } }}
+    styles={{
+      label: { fontSize: "80%" },
+      controlInput: (base, { theme }) => ({
+        ...base,
+        borderColor: theme.colors.primary,
+      }),
+    }}
+  >
+    <ComponentFormContainer ... />
+  </CustomizeProvider>
+</FrontendClientProvider>
+```
+
+<ParamField body="classNames" type="CustomClassNamesConfig">
+  Per-inner-component class name callbacks. Each key is an inner component name; the value is a function `(context) => string` that returns a class name string.
+
+  ```tsx
+  classNames={{
+    controlInput: ({ prop }) =>
+      prop.type === "number" ? "border-red-600" : "border-blue-600",
+  }}
+  ```
+</ParamField>
+
+<ParamField body="classNamePrefix" type="string">
+  A prefix added to the `className` of all inner elements, making it easier to target them in global stylesheets.
+</ParamField>
+
+<ParamField body="components" type="CustomComponentsConfig">
+  Replace individual inner components entirely with your own React components. Use the `useCustomize` hook inside your custom component to integrate with the theme and style system.
+
+  ```tsx
+  import { CustomLabel } from "./CustomLabel";
+
+  <CustomizeProvider components={{ Label: CustomLabel }} />
+  ```
+</ParamField>
+
+<ParamField body="styles" type="CustomStylesConfig">
+  Per-inner-component style overrides. Each value is either a `CSSProperties` object or a callback `(base, context) => CSSProperties`.
+
+  ```tsx
+  styles={{
+    label: { fontSize: "80%" },
+    controlInput: (base, { theme }) => ({
+      ...base,
+      borderColor: theme.colors.primary,
+    }),
+  }}
+  ```
+</ParamField>
+
+<ParamField body="theme" type="CustomThemeConfig">
+  Override theme tokens used throughout the default styles. Accepts `borderRadius`, `colors` (primary, danger, neutrals), and `spacing`.
+
+  ```tsx
+  theme={{
+    borderRadius: 0,
+    colors: {
+      primary: "hsl(200, 100%, 60%)",
+      neutral0: "hsl(200, 50%, 97%)",
+    },
+  }}
+  ```
+</ParamField>
+
+<ParamField body="unstyled" type="boolean">
+  When `true`, removes all default styles from inner components. Useful when building fully custom UI.
+</ParamField>
+
+---
+
+## Components
+
+### `ComponentFormContainer`
+
+The primary component for rendering a form that lets your user configure a Pipedream action or trigger. Handles fetching the component schema, rendering fields, and connecting accounts inline.
+
+```tsx
+import { ComponentFormContainer } from "@pipedream/connect-react";
+
+<ComponentFormContainer
+  userId="user-123"
+  componentKey="slack-send-message"
+  configuredProps={configuredProps}
+  onUpdateConfiguredProps={setConfiguredProps}
+  onSubmit={async (ctx) => {
+    console.log("Submitting with props:", ctx.configuredProps);
+  }}
+/>
+```
+
+<ParamField body="componentKey" type="string" required>
+  The key identifying the Pipedream action or trigger (e.g. `"slack-send-message"`, `"github-new-issue"`). Browse available components in the [Pipedream registry](https://github.com/PipedreamHQ/pipedream/tree/master/components).
+</ParamField>
+
+<ParamField body="userId" type="string" required>
+  Your end user's ID. Used to associate connected accounts with the correct external user.
+</ParamField>
+
+<ParamField body="configuredProps" type="Record<string, any>">
+  The current configured values for the component's props. Store this in `useState` and pass the state value here.
+
+  ```tsx
+  const [configuredProps, setConfiguredProps] = useState({});
+  ```
+</ParamField>
+
+<ParamField body="onUpdateConfiguredProps" type="(v: Record<string, any>) => void">
+  Called whenever the user changes a prop value. Update your state here.
+
+  ```tsx
+  onUpdateConfiguredProps={setConfiguredProps}
+  ```
+</ParamField>
+
+<ParamField body="propNames" type="string[]">
+  Filter the rendered props to only this subset. Useful for multi-step forms where you show different props at each step.
+</ParamField>
+
+<ParamField body="onSubmit" type="(ctx: FormContext) => Promise<void> | void">
+  When provided, renders a submit button. Called with a `FormContext` object when the user submits. Use `ctx.configuredProps` to get the final prop values for passing to your backend.
+</ParamField>
+
+<ParamField body="oauthAppConfig" type="Record<string, string>">
+  Map of app name slugs to your OAuth App IDs. Use this to connect accounts through your own OAuth clients.
+
+  ```tsx
+  oauthAppConfig={{
+    slack: "oa_xxxxxxx",
+    google_sheets: "oa_xxxxxxx",
+  }}
+  ```
+
+  OAuth App IDs are safe to include in client-side code.
+</ParamField>
+
+<ParamField body="hideOptionalProps" type="boolean">
+  When `true`, hides the optional props section. Optional props can still be configured programmatically via `configuredProps`.
+</ParamField>
+
+<ParamField body="enableDebugging" type="boolean">
+  Shows errors returned from SDK calls directly in the form UI. Requires `sdkResponse` to be set.
+</ParamField>
+
+---
+
+## Hooks
+
+All hooks must be used inside a `FrontendClientProvider`.
+
+### `useFrontendClient()`
+
+Returns the `BrowserClient` instance provided by `FrontendClientProvider`.
+
+```tsx
+import { useFrontendClient } from "@pipedream/connect-react";
+
+function ConnectButton() {
+  const client = useFrontendClient();
+
+  return (
+    <button
+      onClick={() =>
+        client.connectAccount({
+          app: "slack",
+          onSuccess: ({ id }) => console.log("Connected:", id),
+        })
+      }
+    >
+      Connect Slack
+    </button>
+  );
+}
+```
+
+### `useAccounts(opts?)`
+
+React Query wrapper for listing connected accounts.
+
+```tsx
+import { useAccounts } from "@pipedream/connect-react";
+
+const { data, isLoading } = useAccounts({ app: "slack" });
+```
+
+### `useApps(opts?)`
+
+React Query wrapper for listing available apps. Supports search, sorting, and filtering.
+
+```tsx
+import { useApps } from "@pipedream/connect-react";
+
+const { apps, isLoading } = useApps({
+  q: "slack",
+  sortKey: "featured_weight",
+  sortDirection: "desc",
+  hasActions: true,
+});
+```
+
+<ParamField query="q" type="string">
+  Search query.
+</ParamField>
+
+<ParamField query="sortKey" type="'name' | 'featured_weight' | 'name_slug'">
+  Field to sort by.
+</ParamField>
+
+<ParamField query="sortDirection" type="'asc' | 'desc'">
+  Sort order.
+</ParamField>
+
+<ParamField query="hasActions" type="boolean">
+  Only return apps that have actions.
+</ParamField>
+
+<ParamField query="hasTriggers" type="boolean">
+  Only return apps that have triggers.
+</ParamField>
+
+### `useComponent(id)`
+
+Fetches metadata and prop schema for a single component.
+
+```tsx
+import { useComponent } from "@pipedream/connect-react";
+
+const { data, isLoading } = useComponent({ key: "slack-send-message" });
+```
+
+### `useComponents(opts?)`
+
+Lists components, optionally filtered by app or type.
+
+```tsx
+import { useComponents } from "@pipedream/connect-react";
+
+const { data, isLoading } = useComponents({
+  app: "slack",
+  componentType: "action",
+});
+```
+
+### `useCustomize()`
+
+Access the current customization config (theme, styles, class names) from inside a custom inner component. See the `CustomizeProvider` reference for usage.
+
+```tsx
+import { useCustomize } from "@pipedream/connect-react";
+
+const { getProps, theme } = useCustomize();
+```
+
+---
+
+## Customizable inner components
+
+The following inner components can be replaced via the `components` prop on `CustomizeProvider` and styled via `styles` or `classNames`:
+
+| Key | Description |
+|---|---|
+| `componentForm` | The form container |
+| `connectButton` | The "Connect" button for app auth props |
+| `controlAny` | Generic value input |
+| `controlApp` | App selector input |
+| `controlBoolean` | Boolean toggle |
+| `controlInput` | Text/number input |
+| `controlSubmit` | Submit button |
+| `description` | Prop description text |
+| `error` / `errors` | Error display |
+| `field` | Individual prop field wrapper |
+| `heading` | Form heading |
+| `label` | Prop label |
+| `optionalFields` | Optional props section |
+| `optionalFieldButton` | Toggle button for optional props |
+
+Dropdown components (`controlAppSelect`, `controlSelect`) support deeper customization via [react-select's style API](https://react-select.com/styles):
+
+```tsx
+<CustomizeProvider
+  styles={{
+    controlSelect: {
+      control: (base, { theme }) => ({
+        ...base,
+        borderRadius: 0,
+        borderColor: theme.colors.primary25,
+        fontSize: "small",
+      }),
+    },
+  }}
+/>
+```

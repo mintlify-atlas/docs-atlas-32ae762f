@@ -1,0 +1,241 @@
+---
+title: "Destinations"
+description: "Asynchronously deliver events to Amazon S3, Snowflake, HTTP endpoints, email, and SSE streams."
+---
+
+Destinations are Pipedream's built-in delivery layer for sending events to external systems. Unlike making a direct API call in a code step, destinations batch and deliver events asynchronously — meaning your workflow step returns immediately while Pipedream handles the delivery in the background.
+
+Pipedream supports five destinations:
+
+<CardGroup cols={2}>
+  <Card title="Amazon S3" icon="aws">
+    Write event payloads to an S3 bucket, organized by prefix.
+  </Card>
+  <Card title="Snowflake" icon="snowflake">
+    Insert rows into a Snowflake table.
+  </Card>
+  <Card title="HTTP" icon="globe">
+    POST event payloads to any HTTP endpoint.
+  </Card>
+  <Card title="Email" icon="envelope">
+    Send events as emails to any address.
+  </Card>
+  <Card title="SSE" icon="tower-broadcast">
+    Publish events to a real-time SSE stream.
+  </Card>
+</CardGroup>
+
+## Amazon S3
+
+Use `$send.s3()` to write event data to an S3 bucket. Pipedream batches events and writes them efficiently, reducing API calls to S3.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    $send.s3({
+      bucket: "your-bucket-here",
+      prefix: "your-prefix/",   // objects are written under this path
+      payload: steps.trigger.event.body,
+    });
+  },
+});
+```
+
+### How S3 delivery works
+
+- Pipedream batches payloads and writes one S3 object per batch
+- Objects are named with a timestamp and unique identifier under the specified `prefix`
+- The AWS credentials used are configured in your Pipedream account settings — Pipedream uses an IAM role with write access to the specified bucket
+
+### Configuration
+
+| Parameter | Type | Description |
+|---|---|---|
+| `bucket` | string | S3 bucket name |
+| `prefix` | string | Key prefix for objects written to the bucket |
+| `payload` | any | The data to write. Serialized as JSON. |
+
+## Snowflake
+
+Use `$send.snowflake()` to insert rows into a Snowflake table. Pipedream manages batching and the Snowflake connection.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    $send.snowflake({
+      account: "xy12345.us-east-1",
+      username: process.env.SNOWFLAKE_USERNAME,
+      password: process.env.SNOWFLAKE_PASSWORD,
+      database: "PIPEDREAM_DB",
+      schema: "PUBLIC",
+      tableName: "EVENTS",
+      dbSuffix: "",
+      payload: steps.trigger.event.body,
+    });
+  },
+});
+```
+
+### How Snowflake delivery works
+
+- Pipedream stages event payloads in S3, then uses Snowflake's `COPY INTO` command to bulk-load rows into the target table
+- The table schema is inferred from the payload on first write — new columns are added automatically as payloads evolve
+- Payloads are stored as a `VARIANT` column alongside metadata columns (event timestamp, source ID, etc.)
+
+### Configuration
+
+| Parameter | Type | Description |
+|---|---|---|
+| `account` | string | Snowflake account identifier (e.g., `xy12345.us-east-1`) |
+| `username` | string | Snowflake username |
+| `password` | string | Snowflake password |
+| `database` | string | Target database name |
+| `schema` | string | Target schema name |
+| `tableName` | string | Target table name |
+| `payload` | any | Row data. Serialized as JSON. |
+
+<Tip>
+  Store Snowflake credentials as environment variables in **Settings → Environment Variables** rather than hardcoding them in workflow steps.
+</Tip>
+
+## HTTP
+
+Use `$send.http()` to POST event data to any HTTP endpoint. This is useful for forwarding events to a webhook receiver, an internal service, or a third-party API.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    $send.http({
+      method: "POST",
+      url: "https://example.com/webhook",
+      data: steps.trigger.event.body,
+      headers: {
+        Authorization: `Bearer ${process.env.MY_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    });
+  },
+});
+```
+
+### Configuration
+
+| Parameter | Type | Description |
+|---|---|---|
+| `method` | string | HTTP method — `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+| `url` | string | The URL to send the request to |
+| `data` | any | Request body. Serialized as JSON. |
+| `headers` | object | HTTP headers to include in the request |
+| `params` | object | Query string parameters |
+
+<Note>
+  HTTP destination requests are sent asynchronously. If you need to read the HTTP response in a subsequent step, use `axios` or `fetch` in a custom code step instead.
+</Note>
+
+## Email
+
+Use `$send.email()` to send event data as an email. Pipedream delivers the email through its own mail infrastructure — no SMTP configuration required.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const event = steps.trigger.event.body;
+
+    $send.email({
+      subject: `New signup: ${event.email}`,
+      text: `A new user signed up:\n\nEmail: ${event.email}\nPlan: ${event.plan}\nTime: ${new Date().toISOString()}`,
+      html: `
+        <h2>New user signup</h2>
+        <p><strong>Email:</strong> ${event.email}</p>
+        <p><strong>Plan:</strong> ${event.plan}</p>
+      `,
+    });
+  },
+});
+```
+
+By default, emails are sent to the address associated with your Pipedream account. You can specify a different recipient:
+
+```javascript
+$send.email({
+  subject: "Alert: high error rate detected",
+  text: `Error rate exceeded threshold: ${steps.check.errorRate}%`,
+  to: "oncall@yourcompany.com",
+});
+```
+
+### Configuration
+
+| Parameter | Type | Description |
+|---|---|---|
+| `subject` | string | Email subject line |
+| `text` | string | Plain-text body |
+| `html` | string | HTML body (optional; falls back to `text` if not provided) |
+| `to` | string | Recipient email address (defaults to your Pipedream account email) |
+
+## SSE
+
+Use `$send.sse()` to publish events to a real-time [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) stream. Any client subscribed to the stream receives the event immediately.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    $send.sse({
+      channel: "my-channel",
+      payload: {
+        type: "order.created",
+        orderId: steps.trigger.event.body.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  },
+});
+```
+
+Clients subscribe to the SSE stream using the Pipedream SSE API:
+
+```javascript
+// Browser or Node.js client
+const source = new EventSource(
+  "https://api.pipedream.com/sources/{source_id}/sse",
+  {
+    headers: { Authorization: `Bearer ${PIPEDREAM_API_KEY}` },
+  }
+);
+
+source.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log("Received:", data);
+};
+```
+
+### Configuration
+
+| Parameter | Type | Description |
+|---|---|---|
+| `channel` | string | The SSE channel name |
+| `payload` | any | The event data to publish. Serialized as JSON. |
+
+### Use cases
+
+SSE destinations are a good fit for:
+
+- Real-time dashboards that display live event feeds
+- Browser clients that need to receive server-pushed updates without polling
+- Decoupled systems where producers and consumers run independently
+
+## Asynchronous delivery and ordering
+
+<Warning>
+  All destinations deliver events asynchronously. The `$send.*()` call enqueues the event and returns immediately — delivery happens in the background after your workflow step completes. If your downstream system requires a synchronous response, use a direct API call in a code step instead of a destination.
+</Warning>
+
+Event ordering is best-effort. Under normal conditions, events are delivered in the order they were emitted, but this is not guaranteed — especially during high-throughput bursts or infrastructure events.
+
+## When to use destinations vs. actions
+
+| Use destinations when... | Use actions (or custom code) when... |
+|---|---|
+| You want fire-and-forget delivery with no blocking | You need to read the response from the downstream system |
+| You're sending to S3, Snowflake, or an SSE stream | You're calling a specific app API with complex logic |
+| Batching and buffering reduces cost or API load | You need synchronous confirmation before proceeding |

@@ -1,0 +1,101 @@
+---
+title: "Pricing"
+description: "Pipedream pricing plans for individual developers, teams, and enterprises."
+---
+
+Pipedream offers a free tier for individual developers and paid plans that unlock higher event volumes, additional concurrency, and priority support.
+
+## Plans
+
+<Columns cols={2}>
+  <Card title="Free (Developer)" icon="seedling">
+    **$0/month**
+    - 10,000 events/month
+    - Unlimited workflows
+    - Community support
+    - 30-day event retention
+  </Card>
+  <Card title="Basic" icon="bolt">
+    **$19/month**
+    - 20,000 events/month
+    - Remove Pipedream branding
+    - Email support
+    - 30-day event retention
+  </Card>
+  <Card title="Advanced" icon="rocket">
+    **$49/month**
+    - 100,000 events/month
+    - Advanced concurrency controls
+    - Priority support
+    - Extended retention options
+  </Card>
+  <Card title="Business" icon="building">
+    **$149/month**
+    - 500,000 events/month
+    - Custom limits
+    - SLA
+    - Dedicated onboarding
+  </Card>
+</Columns>
+
+### Enterprise
+
+For organizations that need unlimited event volume, custom SLAs, dedicated support, and on-premises deployment options:
+
+- Unlimited events
+- Custom rate limits and concurrency
+- Dedicated support team
+- Custom SLAs
+- On-prem or private cloud deployment option
+- SOC 2 Type 2 report available on request
+
+Contact [sales@pipedream.com](mailto:sales@pipedream.com) for a quote.
+
+## What counts as an event?
+
+An **event** is any execution of a workflow step. Each time a trigger fires and runs through your workflow steps, each step counts as one event.
+
+<AccordionGroup>
+  <Accordion title="Does a trigger count as an event?">
+    Yes. Each workflow execution counts the trigger step plus every subsequent step that runs.
+  </Accordion>
+  <Accordion title="What happens when I exceed my monthly limit?">
+    On the free tier, workflow executions are paused until your quota resets at the start of the next billing cycle. On paid plans, additional events are billed at a per-event rate. You will receive an email notification before your quota is exhausted.
+  </Accordion>
+  <Accordion title="When does my event quota reset?">
+    Quotas reset on the first day of each calendar month (UTC).
+  </Accordion>
+  <Accordion title="Can I purchase additional events without upgrading my plan?">
+    Yes. On paid plans you can purchase event add-ons from the billing settings page.
+  </Accordion>
+</AccordionGroup>
+
+## Plan comparison
+
+| Feature | Free | Basic | Advanced | Business | Enterprise |
+|---------|------|-------|----------|----------|------------|
+| Events/month | 10,000 | 20,000 | 100,000 | 500,000 | Unlimited |
+| Workflows | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
+| Pipedream branding | Yes | Removed | Removed | Removed | Removed |
+| Event retention | 30 days | 30 days | Extended | Extended | Custom |
+| Concurrency | Standard | Standard | Advanced | Custom | Custom |
+| Support | Community | Email | Priority | Dedicated | Dedicated |
+| SLA | No | No | No | Yes | Custom |
+| On-prem | No | No | No | No | Yes |
+
+## Upgrading your plan
+
+<Steps>
+  <Step title="Open billing settings">
+    Navigate to [https://pipedream.com/settings/billing](https://pipedream.com/settings/billing).
+  </Step>
+  <Step title="Choose a plan">
+    Select the plan that fits your usage and click **Upgrade**.
+  </Step>
+  <Step title="Enter payment details">
+    Pipedream uses Stripe for payment processing. Enter your credit card details and confirm.
+  </Step>
+  <Step title="Changes take effect immediately">
+    Your new event quota and features activate as soon as the payment is confirmed.
+  </Step>
+</Steps>

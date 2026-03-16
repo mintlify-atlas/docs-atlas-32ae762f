@@ -1,0 +1,70 @@
+---
+title: "Platform limits"
+description: "Technical limits for workflow execution, event payloads, memory, storage, and data retention on Pipedream."
+---
+
+Pipedream enforces platform limits to ensure fair usage and system stability. Most limits can be increased on paid plans or by contacting support.
+
+## Execution limits
+
+| Limit | Value |
+|-------|-------|
+| Synchronous execution timeout | 30 seconds |
+| Asynchronous execution timeout | 12 hours |
+| Memory per step (default) | 128 MB |
+| Memory per step (configurable max) | 4 GB |
+| Max concurrent workflow executions | Depends on plan |
+
+<Note>
+Synchronous workflows respond directly to the HTTP trigger within 30 seconds. Use `$.respond()` to return a response. For longer-running work, use asynchronous execution.
+</Note>
+
+## Payload and response limits
+
+| Limit | Value |
+|-------|-------|
+| Max event payload size | 512 KB |
+| Max HTTP response size | 1 MB |
+
+Payloads exceeding 512 KB are rejected at the trigger. If your source emits large payloads, pre-process or filter them upstream.
+
+## Data retention
+
+| Resource | Free tier | Paid tiers |
+|----------|-----------|------------|
+| Event retention | 30 days | Extended (plan-dependent) |
+| Execution log retention | 30 days | 30 days |
+
+Events older than the retention window are automatically purged. Export events via the [REST API](/api/sources) or SSE stream if you need longer-term storage.
+
+## Data store limits
+
+| Limit | Free tier | Paid tiers |
+|-------|-----------|------------|
+| Max data store size | 100 MB per store | Higher limits on paid plans |
+
+Data stores are Pipedream's built-in key-value storage. Use them for persisting state between workflow executions.
+
+## Rate limits
+
+See the [REST API overview](/api/overview#rate-limiting) for API rate limit details.
+
+Workflow HTTP triggers accept inbound requests without a hard rate limit, but bursts of traffic may be queued. For high-throughput scenarios, contact support.
+
+## Concurrency
+
+<AccordionGroup>
+  <Accordion title="What is concurrency?">
+    Concurrency is the number of workflow executions that can run simultaneously. Executions beyond the concurrency limit are queued and run as slots become available.
+  </Accordion>
+  <Accordion title="How do I control concurrency?">
+    You can configure concurrency settings per workflow from the workflow settings panel in the dashboard. Options include unlimited, single-worker (serial), and custom limits.
+  </Accordion>
+  <Accordion title="What happens to queued events?">
+    Queued events are held for up to 24 hours before being dropped. Monitor queue depth from the workflow observability panel.
+  </Accordion>
+</AccordionGroup>
+
+## Requesting limit increases
+
+If your use case requires higher limits, [contact support](mailto:support@pipedream.com) or upgrade to a Business or Enterprise plan. Custom limits are negotiated as part of the Enterprise contract.

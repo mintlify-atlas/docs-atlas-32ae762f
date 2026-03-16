@@ -1,0 +1,227 @@
+---
+title: "Component quickstart"
+description: "Build and deploy your first Pipedream source and action in under 10 minutes."
+---
+
+This guide walks you through building a polling event source that fetches new posts from an RSS feed, and a simple action that logs output to a workflow step. By the end, you'll understand how to structure any Pipedream component.
+
+## Prerequisites
+
+- A [Pipedream account](https://pipedream.com)
+- Node.js 18+ installed locally
+- The [Pipedream CLI](https://pipedream.com/docs/cli/reference/) installed: `npm install -g @pipedream/sdk`
+
+## Part 1: Build an event source
+
+### 1. Create the source file
+
+Create a file called `rss-new-item.mjs`:
+
+```javascript
+import Parser from "rss-parser";
+
+export default {
+  name: "RSS — New Item",
+  key: "rss-new-item",
+  description: "Emit an event for each new item in an RSS or Atom feed.",
+  version: "0.0.1",
+  type: "source",
+  dedupe: "unique",
+  props: {
+    timer: {
+      type: "$.interface.timer",
+      default: {
+        intervalSeconds: 900, // every 15 minutes
+      },
+    },
+    url: {
+      type: "string",
+      label: "Feed URL",
+      description: "The URL of the RSS or Atom feed to watch.",
+    },
+  },
+  async run({ $ }) {
+    const parser = new Parser();
+    const feed = await parser.parseURL(this.url);
+
+    for (const item of feed.items) {
+      this.$emit(item, {
+        id: item.guid || item.link,  // stable dedup key
+        summary: item.title,
+        ts: item.pubDate ? Date.parse(item.pubDate) : Date.now(),
+      });
+    }
+  },
+};
+```
+
+### 2. Understand what's happening
+
+<AccordionGroup>
+  <Accordion title="dedupe: 'unique'" defaultOpen={false}>
+    Pipedream tracks every `id` you pass to `this.$emit()`. If the same `id` appears on the next polling run, the event is silently dropped. This prevents duplicate workflow runs from repeated poll results.
+  </Accordion>
+  <Accordion title="props.timer" defaultOpen={false}>
+    The `$.interface.timer` prop tells Pipedream to call `run()` on a schedule. The `default` sets the initial interval. Users can change it in the UI without touching code.
+  </Accordion>
+  <Accordion title="props.url" defaultOpen={false}>
+    A `string` prop becomes a text input in the Pipedream UI when a user deploys the source. `this.url` is available inside `run()` with the value the user entered.
+  </Accordion>
+  <Accordion title="this.$emit(item, metadata)" defaultOpen={false}>
+    Publishes `item` as a new event. The `metadata` object controls deduplication (`id`), the human-readable label in the event log (`summary`), and the event timestamp (`ts`).
+  </Accordion>
+</AccordionGroup>
+
+### 3. Deploy and test
+
+<Steps>
+  <Step title="Log in to the CLI">
+    ```bash
+    pd login
+    ```
+    This opens a browser window to authenticate with your Pipedream account.
+  </Step>
+  <Step title="Deploy the source">
+    ```bash
+    pd deploy rss-new-item.mjs
+    ```
+    The CLI prompts you for the `url` prop value, then deploys the source.
+  </Step>
+  <Step title="Trigger a test run">
+    ```bash
+    pd events -n 10 rss-new-item
+    ```
+    This triggers the source immediately and shows the last 10 emitted events. You should see one event per RSS item.
+  </Step>
+  <Step title="Inspect an event">
+    In the Pipedream UI, navigate to **Sources** and click your new source. Click any event to see the full emitted payload.
+  </Step>
+</Steps>
+
+---
+
+## Part 2: Build an action
+
+Actions are reusable workflow steps. Unlike sources, they don't emit events — they run inline in a workflow and return a value.
+
+### 1. Create the action file
+
+Create `send-slack-message.mjs`:
+
+```javascript
+export default {
+  name: "Send Slack Message",
+  key: "slack-send-message",
+  description: "Post a message to a Slack channel using the Slack API.",
+  version: "0.0.1",
+  type: "action",
+  props: {
+    slack: {
+      type: "app",
+      app: "slack",
+    },
+    channel: {
+      type: "string",
+      label: "Channel",
+      description: "Channel ID or name (e.g. `#general` or `C012AB3CD`).",
+    },
+    text: {
+      type: "string",
+      label: "Message text",
+      description: "The message to post.",
+    },
+  },
+  async run({ $ }) {
+    const response = await $.http.post(
+      "https://slack.com/api/chat.postMessage",
+      {
+        channel: this.channel,
+        text: this.text,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.slack.$auth.oauth_access_token}`,
+        },
+      }
+    );
+
+    if (!response.data.ok) {
+      throw new Error(`Slack API error: ${response.data.error}`);
+    }
+
+    $.export("$summary", `Message sent to ${this.channel}`);
+    return response.data;
+  },
+};
+```
+
+### 2. Key differences from a source
+
+| | Source | Action |
+|---|---|---|
+| `type` | `"source"` | `"action"` |
+| Output | `this.$emit()` | `return value` |
+| Step summary | n/a | `$.export("$summary", "...")` |
+| Timer/HTTP props | yes | no |
+| `dedupe` | yes | no |
+
+### 3. Use `$.export` for step summaries
+
+`$.export("$summary", "...")` sets the human-readable label shown in the workflow builder after the step runs. Always set a summary in actions so users can see what happened at a glance.
+
+```javascript
+$.export("$summary", `Message sent to ${this.channel}`);
+// → "Message sent to #general" shown in the UI
+```
+
+### 4. Deploy the action
+
+```bash
+pd deploy send-slack-message.mjs
+```
+
+After deploying, the action is available as a step in any new or existing workflow.
+
+---
+
+## Part 3: Use a connected app
+
+The `slack` prop in the action above is an `app` prop. When a user adds this step to a workflow, Pipedream prompts them to connect their Slack account (OAuth). The access token is injected at runtime via `this.slack.$auth.oauth_access_token`.
+
+You never handle OAuth flows or store credentials yourself — Pipedream manages this entirely.
+
+```javascript
+props: {
+  github: {
+    type: "app",
+    app: "github",
+  },
+},
+async run({ $ }) {
+  // GitHub personal access token or OAuth token
+  const token = this.github.$auth.oauth_access_token;
+  const response = await $.http.get("https://api.github.com/user", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+},
+```
+
+---
+
+## What to build next
+
+<CardGroup cols={2}>
+  <Card title="Component API reference" icon="book" href="/components/api">
+    Full documentation of every prop type, lifecycle method, and metadata field.
+  </Card>
+  <Card title="Component guidelines" icon="list-checks" href="/components/guidelines">
+    Naming conventions, testing requirements, and contribution process.
+  </Card>
+  <Card title="Event sources overview" icon="bolt" href="/sources/overview">
+    Understand the different source types and how events flow to workflows.
+  </Card>
+  <Card title="Pre-built components" icon="puzzle" href="https://github.com/PipedreamHQ/pipedream/tree/master/components">
+    Browse 1,000+ open-source sources and actions in the Pipedream GitHub repo.
+  </Card>
+</CardGroup>

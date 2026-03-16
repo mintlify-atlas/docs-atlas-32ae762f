@@ -1,0 +1,272 @@
+---
+title: "Custom code"
+description: "Run Node.js, Python, Go, or Bash in any workflow step. Import any package. Connect to any integrated app."
+---
+
+Most integrations require custom logic that goes beyond what pre-built actions cover. Pipedream lets you write and run code directly in workflow steps — with no setup, no deployment pipeline, and no infrastructure to manage.
+
+Supported runtimes:
+
+<CardGroup cols={4}>
+  <Card title="Node.js" icon="js">
+    Full ES module support. Import from npm. Access Pipedream's `defineComponent` API.
+  </Card>
+  <Card title="Python" icon="python">
+    Import from PyPI. Use `pd.steps` to access prior step data.
+  </Card>
+  <Card title="Go" icon="golang">
+    Import packages. Use the `pipedream-go` SDK for step data access.
+  </Card>
+  <Card title="Bash" icon="terminal">
+    Full shell scripting. `curl`, `jq`, standard Unix tooling.
+  </Card>
+</CardGroup>
+
+## Importing packages
+
+Declare imports at the top of your code. Pipedream parses the import statements and installs the required packages automatically — no `package.json`, `requirements.txt`, or `go.mod` needed.
+
+<CodeGroup>
+
+```javascript Node.js
+import axios from "axios";
+import _ from "lodash";
+import { parse } from "csv-parse/sync";
+```
+
+```python Python
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+```
+
+```go Go
+import (
+    "fmt"
+    "encoding/json"
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+```
+
+```bash Bash
+#!/bin/bash
+# Standard tools are available: curl, jq, awk, sed
+curl -s https://api.example.com/data | jq '.items[]'
+```
+
+</CodeGroup>
+
+<Warning>
+  Package installation happens at step execution time. If you import a very large package, the first execution may be slower while Pipedream fetches and caches the dependency.
+</Warning>
+
+## Accessing step data
+
+All data from previous steps — including the trigger event — is available in every code step.
+
+<CodeGroup>
+
+```javascript Node.js
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Trigger event
+    const { body, headers } = steps.trigger.event;
+
+    // Output from a previous step named "parse_csv"
+    const rows = steps.parse_csv.$return_value;
+
+    return { rowCount: rows.length };
+  },
+});
+```
+
+```python Python
+def handler(pd: 'pipedream'):
+    # Trigger event
+    body = pd.steps["trigger"]["event"]["body"]
+
+    # Output from a previous step
+    rows = pd.steps["parse_csv"]["$return_value"]
+
+    return {"row_count": len(rows)}
+```
+
+```go Go
+package main
+
+import (
+    "fmt"
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+func main(event pd.Event) interface{} {
+    body := event.Steps["trigger"].(map[string]interface{})["event"]
+    fmt.Println(body)
+    return body
+}
+```
+
+</CodeGroup>
+
+## Connecting to integrated apps
+
+You can connect any of Pipedream's 2,800+ integrated apps to a custom code step. Declare an `app` prop and Pipedream will prompt for account authorization. The OAuth token or API key is available at runtime via `this.<appName>.$auth`.
+
+### Example: send a Slack message
+
+```javascript
+import { WebClient } from "@slack/web-api";
+
+export default defineComponent({
+  props: {
+    // Declares a Slack connection — user selects their account in the UI
+    slack: {
+      type: "app",
+      app: "slack",
+    },
+  },
+  async run({ steps, $ }) {
+    const web = new WebClient(this.slack.$auth.oauth_access_token);
+
+    return await web.chat.postMessage({
+      text: "Hello, world!",
+      channel: "#general",
+    });
+  },
+});
+```
+
+The `slack.$auth` object is populated by Pipedream at runtime with the authenticated user's credentials — you never handle OAuth flows or token storage yourself.
+
+### Example: query a database
+
+```javascript
+import mysql from "mysql2/promise";
+
+export default defineComponent({
+  props: {
+    mysql: {
+      type: "app",
+      app: "mysql",
+    },
+  },
+  async run({ steps, $ }) {
+    const { host, port, username, password, database } = this.mysql.$auth;
+
+    const connection = await mysql.createConnection({
+      host,
+      port,
+      user: username,
+      password,
+      database,
+    });
+
+    const [rows] = await connection.execute(
+      "SELECT * FROM users WHERE created_at > ?",
+      [steps.trigger.event.body.since]
+    );
+
+    await connection.end();
+    return rows;
+  },
+});
+```
+
+## Environment variables
+
+Store secrets in **Settings → Environment Variables** in the Pipedream dashboard. They are encrypted at rest and available in every code step:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const apiKey = process.env.MY_API_KEY;
+    // ...
+  },
+});
+```
+
+```python
+import os
+
+def handler(pd: 'pipedream'):
+    api_key = os.environ["MY_API_KEY"]
+    # ...
+```
+
+<Tip>
+  Prefer environment variables over hardcoding credentials. Environment variables are shared across all your workflows, so you only update them in one place.
+</Tip>
+
+## Returning data from a step
+
+The return value of a code step is exported as `steps.<step_name>.$return_value`. Downstream steps and actions can reference this value.
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // This object will be available in all later steps
+    return {
+      userId: steps.trigger.event.body.id,
+      processedAt: new Date().toISOString(),
+      status: "processed",
+    };
+  },
+});
+```
+
+You can also export named values using `$.export()`:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    $.export("userId", 42);
+    $.export("email", "user@example.com");
+    // These are available as steps.<step_name>.userId, etc.
+  },
+});
+```
+
+## Ending a workflow early
+
+Use `$.flow.exit()` to stop workflow execution at any point — for example, to filter out events you don't want to process:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const event = steps.trigger.event;
+
+    // Only process POST requests
+    if (event.method !== "POST") {
+      $.flow.exit("Skipping non-POST request");
+    }
+
+    return event.body;
+  },
+});
+```
+
+## Responding to HTTP triggers
+
+When your workflow uses an HTTP trigger, you can send a synchronous HTTP response from a code step:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Process the request
+    const result = { status: "ok", id: 123 };
+
+    // Send an HTTP response back to the caller
+    await $.respond({
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+      body: result,
+    });
+
+    return result;
+  },
+});
+```
+
+<Note>
+  `$.respond()` must be called before the step returns. The workflow continues executing subsequent steps after sending the response.
+</Note>

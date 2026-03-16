@@ -1,0 +1,146 @@
+---
+title: "Event sources"
+description: "Event sources watch for new data from third-party apps and emit events that trigger workflows."
+---
+
+An event source is a component that connects to a service, polls for new data or listens for webhooks, and emits events when something new occurs. Sources are the triggers behind Pipedream workflows — when a source emits an event, every workflow connected to that source runs.
+
+Pipedream ships hundreds of pre-built sources for services like GitHub, Slack, Airtable, RSS, Twitter, and more. You can also build your own.
+
+## How sources work
+
+1. You deploy a source and connect it to a service (e.g., a GitHub repo or a Slack channel)
+2. Pipedream runs the source on your behalf — continuously polling the API, or receiving webhook callbacks
+3. When the source detects a new event, it emits it
+4. Any workflows connected to that source fire immediately with the event as their trigger payload
+
+You can also consume emitted events directly without a workflow, using the [Pipedream REST API](https://pipedream.com/docs/api/rest/) or by subscribing to a private [SSE stream](https://pipedream.com/docs/api/sse/).
+
+## Using pre-built sources
+
+Pipedream's component registry has sources for hundreds of apps. When you add a trigger to a workflow, you're selecting a source. Common examples:
+
+- **GitHub** — New pull request, new issue, push to a branch
+- **Slack** — New message in a channel, new reaction
+- **Airtable** — New or updated record in a table
+- **RSS** — New item in a feed
+- **Google Sheets** — New row added
+- **Stripe** — New charge, subscription created
+
+## Building a custom source
+
+When no pre-built source fits your use case, you can write one. Sources are JavaScript modules that export a component definition.
+
+### Minimal HTTP source
+
+The simplest source exposes an HTTP endpoint. Any request sent to it emits an event:
+
+```javascript
+export default {
+  name: "http",
+  version: "0.0.1",
+  props: {
+    http: "$.interface.http",
+  },
+  run(event) {
+    console.log(event); // event contains method, headers, body, query params
+  },
+};
+```
+
+The `$.interface.http` prop tells Pipedream to provision an HTTP endpoint. Pipedream calls `run(event)` with the full request object every time the endpoint receives a request.
+
+### Timer-based source
+
+Sources can run on a schedule using `$.interface.timer` to poll an API:
+
+```javascript
+export default {
+  name: "rss-poller",
+  version: "0.0.1",
+  props: {
+    timer: {
+      type: "$.interface.timer",
+      default: {
+        intervalSeconds: 300, // poll every 5 minutes
+      },
+    },
+    feedUrl: {
+      type: "string",
+      label: "RSS feed URL",
+    },
+  },
+  dedupe: "unique",
+  async run() {
+    const items = await fetchRssFeed(this.feedUrl);
+    for (const item of items) {
+      this.$emit(item, {
+        id: item.guid,        // deduplicated by id
+        summary: item.title,
+        ts: Date.parse(item.pubDate),
+      });
+    }
+  },
+};
+```
+
+Key points:
+
+- `this.$emit(payload, metadata)` emits an event. Pipedream delivers it to connected workflows.
+- `dedupe: "unique"` tells Pipedream to only emit events with IDs it hasn't seen before — you won't get duplicate events from repeated polls.
+- `ts` in the emit metadata sets the event timestamp, used for ordering in the Inspector.
+
+## Source props
+
+Props define the inputs a source accepts. Pipedream renders them as a form in the UI and validates them before running the source.
+
+| Prop type | Description |
+|---|---|
+| `string` | Text input |
+| `integer` | Integer input |
+| `boolean` | Toggle |
+| `string[]` | List of strings |
+| `$.interface.http` | Provisions an HTTP endpoint |
+| `$.interface.timer` | Schedules the source to run on a timer |
+| `app` | Connects a user's account for an integrated app |
+
+```javascript
+props: {
+  github: {
+    type: "app",
+    app: "github",
+  },
+  repo: {
+    type: "string",
+    label: "Repository",
+    description: "The GitHub repo to watch, e.g. `owner/repo`",
+  },
+},
+```
+
+## Deduplication
+
+Pipedream supports three deduplication strategies, set via the `dedupe` field on the source:
+
+| Strategy | Behavior |
+|---|---|
+| `unique` | Only emit events whose `id` hasn't been seen before |
+| `greatest` | Only emit events whose `id` is greater than the highest `id` seen so far |
+| `last` | Only emit an event if its `id` differs from the most recently emitted `id` |
+
+## Consuming events without a workflow
+
+You don't need a workflow to use a source. You can:
+
+- **Poll the REST API**: `GET /sources/{id}/events` to retrieve buffered events
+- **Subscribe via SSE**: Connect to a real-time SSE stream at `/sources/{id}/sse` to receive events as they're emitted
+
+This makes sources useful as a standalone event bus — emit events from one system and consume them from another, decoupled from any particular workflow.
+
+## Contributing sources
+
+All pre-built sources live in the [Pipedream GitHub repository](https://github.com/PipedreamHQ/pipedream) under `components/`. If you build a source that others would find useful, you can submit a pull request to add it to the public registry.
+
+<Note>
+  See the [contributing guide](https://pipedream.com/docs/components/guidelines/) for component development standards, the review process, and how to set up your local development environment.
+</Note>

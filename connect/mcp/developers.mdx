@@ -1,0 +1,182 @@
+---
+title: "MCP for Developers"
+description: "Embed Pipedream's MCP server in your own AI product to give users access to 2,800+ apps."
+---
+
+This guide covers how to integrate Pipedream's MCP server into your own application so your users can connect third-party accounts and have an AI agent act on their behalf.
+
+## Prerequisites
+
+- A [Pipedream account](https://pipedream.com/auth/signup)
+- A Pipedream project — [create one here](https://pipedream.com/projects)
+- A [Pipedream OAuth client](https://pipedream.com/settings/oauth) with `clientId` and `clientSecret`
+- Familiarity with the [Pipedream Connect server SDK](/connect/sdk/server)
+
+## How it works
+
+1. Your user connects an account via Pipedream Connect (OAuth flow in your UI).
+2. Your server constructs an MCP server URL with the user's `external_user_id` and the app slug.
+3. Your AI agent or MCP client connects to that URL.
+4. Pipedream handles credential injection — the AI can call tools as the authenticated user.
+
+```
+Your UI ──connectAccount("slack")──▶ Pipedream Connect (OAuth)
+                                            │
+                                            ▼
+Your AI agent ──connect──▶ https://remote.mcp.pipedream.net/{userId}/slack
+                                            │
+                                    injects Slack credentials
+                                            │
+                                            ▼
+                                    10,000+ Slack tools ready to call
+```
+
+## Step 1: Connect the user's account
+
+Before the AI agent can use tools, the user must connect the relevant account. Use the [Connect quickstart](/connect/quickstart) to implement this flow.
+
+The result is a connected account with an ID like `apn_xxxxxxx`, scoped to your `external_user_id`.
+
+## Step 2: Construct the MCP server URL
+
+Once the account is connected, build the MCP URL on your server:
+
+```typescript
+const externalUserId = "user-123"; // your user's ID
+const app = "slack"; // app name slug
+
+// SSE transport
+const sseUrl = `https://remote.mcp.pipedream.net/${externalUserId}/${app}`;
+
+// Streamable HTTP transport
+const httpUrl = `https://remote.mcp.pipedream.net/v1/${externalUserId}/${app}`;
+```
+
+<Note>
+Never construct MCP URLs client-side without first validating the `external_user_id` belongs to the authenticated session. An attacker could substitute any user ID to access other users' accounts.
+</Note>
+
+## Step 3: Connect your MCP client
+
+Pass the URL to your MCP client. The exact configuration depends on the client:
+
+<Tabs>
+  <Tab title="Claude Desktop">
+    Add the MCP server to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+    ```json
+    {
+      "mcpServers": {
+        "pipedream-slack": {
+          "url": "https://remote.mcp.pipedream.net/user-123/slack"
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    In Cursor settings, add an MCP server with the SSE URL:
+
+    ```
+    https://remote.mcp.pipedream.net/user-123/slack
+    ```
+  </Tab>
+  <Tab title="Custom agent (TypeScript)">
+    Using the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk):
+
+    ```typescript
+    import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+    import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+
+    const transport = new SSEClientTransport(
+      new URL(`https://remote.mcp.pipedream.net/${externalUserId}/slack`)
+    );
+
+    const client = new Client(
+      { name: "my-agent", version: "1.0.0" },
+      { capabilities: {} }
+    );
+
+    await client.connect(transport);
+
+    const tools = await client.listTools();
+    console.log(tools); // All Slack tools available
+    ```
+  </Tab>
+</Tabs>
+
+## Self-hosting the MCP server
+
+For local development or private deployments, run the reference implementation:
+
+```bash
+npx @pipedream/mcp
+```
+
+Set the following environment variables before starting:
+
+```bash
+PIPEDREAM_CLIENT_ID=your_client_id
+PIPEDREAM_CLIENT_SECRET=your_client_secret
+PIPEDREAM_PROJECT_ID=your_project_id
+PIPEDREAM_PROJECT_ENVIRONMENT=development
+```
+
+Then connect to the local server:
+
+- SSE: `http://localhost:3010/{external_user_id}/{app}`
+- Streamable HTTP: `http://localhost:3010/v1/{external_user_id}/{app}`
+
+Use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) to test the server:
+
+```bash
+npx @modelcontextprotocol/inspector
+```
+
+<Warning>
+The `@pipedream/mcp` package is a reference implementation and is not actively maintained. Use the hosted `remote.mcp.pipedream.net` server for production.
+</Warning>
+
+## Debugging
+
+Enable verbose SDK logging by setting `PD_SDK_DEBUG=true` in your environment. All requests and responses to the Pipedream Connect API are printed to stdout.
+
+```bash
+PD_SDK_DEBUG=true npx @pipedream/mcp
+```
+
+## Security considerations
+
+<AccordionGroup>
+  <Accordion title="Validate external_user_id server-side">
+    The `external_user_id` in the MCP URL must correspond to the authenticated user in your application. Always derive it from your authentication session — never accept it as a client-supplied input without validation.
+  </Accordion>
+
+  <Accordion title="Use short-lived Connect tokens">
+    When building auth flows, always use `createConnectToken` to generate short-lived, single-use tokens. Never expose your `clientSecret` or long-lived access tokens to browser code.
+  </Accordion>
+
+  <Accordion title="Scope MCP connections to the correct user">
+    Each MCP server URL is scoped to one `external_user_id`. An agent using `https://remote.mcp.pipedream.net/user-123/slack` can only use the Slack account connected by `user-123`. Different users get different URLs.
+  </Accordion>
+
+  <Accordion title="Credential storage">
+    Pipedream stores credentials encrypted at rest. See [Pipedream's security docs](https://pipedream.com/docs/privacy-and-security/#third-party-oauth-grants-api-keys-and-environment-variables) for details on how OAuth tokens and API keys are stored.
+  </Accordion>
+</AccordionGroup>
+
+## Available apps and tools
+
+Browse the full list of available apps at [mcp.pipedream.com](https://mcp.pipedream.com) or use the server SDK to list them programmatically:
+
+```typescript
+const { data: apps } = await client.getApps({ hasActions: true });
+console.log(`${apps.length} apps available`);
+
+// List tools for a specific app
+const { data: components } = await client.getComponents({
+  app: "slack",
+  componentType: "action",
+});
+console.log(`${components.length} Slack actions`);
+```

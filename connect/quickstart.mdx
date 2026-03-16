@@ -1,0 +1,143 @@
+---
+title: "Quickstart"
+description: "Connect a third-party account from your app in under 5 minutes."
+---
+
+This guide walks through the minimum steps to let one of your users connect a Slack account (or any other app) through your product using Pipedream Connect.
+
+## Prerequisites
+
+- A [Pipedream account](https://pipedream.com/auth/signup)
+- A Pipedream project — [create one here](https://pipedream.com/projects). Copy the project ID (format: `proj_xxxxxxx`).
+- A Pipedream OAuth client — create one in **Settings → OAuth Clients**. Copy the `clientId` and `clientSecret`.
+
+## Install the SDK
+
+```bash
+npm install @pipedream/sdk
+```
+
+<Steps>
+  <Step title="Initialize the server client">
+    On your server, create a `BackendClient` using your project credentials. Keep `clientSecret` in an environment variable — never send it to the browser.
+
+    ```typescript
+    import { createBackendClient } from "@pipedream/sdk/server";
+
+    const client = createBackendClient({
+      environment: "development",
+      projectId: process.env.PIPEDREAM_PROJECT_ID,
+      credentials: {
+        clientId: process.env.PIPEDREAM_CLIENT_ID,
+        clientSecret: process.env.PIPEDREAM_CLIENT_SECRET,
+      },
+    });
+    ```
+  </Step>
+
+  <Step title="Create a server endpoint that returns a Connect token">
+    When your authenticated user wants to connect an account, your frontend calls this endpoint. The server mints a short-lived token scoped to that user.
+
+    ```typescript
+    // Example: Next.js Route Handler
+    // app/api/connect-token/route.ts
+    import { NextRequest, NextResponse } from "next/server";
+
+    export async function POST(req: NextRequest) {
+      const { externalUserId } = await req.json();
+
+      // externalUserId is whatever ID you use to identify this user
+      // in your own system (e.g. a database primary key)
+      const tokenResponse = await client.createConnectToken({
+        external_user_id: externalUserId,
+        allowed_origins: ["http://localhost:3000"],
+      });
+
+      return NextResponse.json(tokenResponse);
+    }
+    ```
+
+    `createConnectToken` returns a `ConnectTokenResponse`:
+
+    ```typescript
+    type ConnectTokenResponse = {
+      token: string;         // short-lived token for the browser
+      expires_at: string;    // ISO 8601 expiry
+      connect_link_url: string;
+    };
+    ```
+  </Step>
+
+  <Step title="Trigger the OAuth flow from the browser">
+    Use the browser SDK to open the Pipedream Connect UI. The user is taken through the OAuth flow for the app you specify.
+
+    ```typescript
+    import { createFrontendClient } from "@pipedream/sdk/browser";
+
+    const client = createFrontendClient({
+      environment: "development",
+      externalUserId: "user-123",
+      tokenCallback: async ({ externalUserId }) => {
+        // Fetch a fresh token from your server endpoint
+        const res = await fetch("/api/connect-token", {
+          method: "POST",
+          body: JSON.stringify({ externalUserId }),
+          headers: { "Content-Type": "application/json" },
+        });
+        return res.json();
+      },
+    });
+
+    // Opens the Pipedream Connect iframe for Slack
+    await client.connectAccount({
+      app: "slack", // app name slug
+      onSuccess: ({ id }) => {
+        console.log("Connected account ID:", id);
+      },
+      onError: (err) => {
+        console.error("Connection failed:", err.message);
+      },
+      onClose: ({ successful, completed }) => {
+        console.log({ successful, completed });
+      },
+    });
+    ```
+
+    <Tip>
+      Find an app's name slug on the **Authentication** section of its page at [pipedream.com/apps](https://pipedream.com/apps). For example, Slack's slug is `slack`, Google Sheets is `google_sheets`.
+    </Tip>
+  </Step>
+
+  <Step title="Retrieve the connected account on your server">
+    After a user connects an account, use the account `id` returned by `onSuccess` to retrieve credentials or make API calls on their behalf.
+
+    ```typescript
+    // Retrieve account metadata (no credentials)
+    const account = await client.getAccountById("apn_xxxxxxx");
+    console.log(account.name, account.app.name_slug, account.healthy);
+
+    // Retrieve account with credentials (access token, API key, etc.)
+    const accountWithCreds = await client.getAccountById("apn_xxxxxxx", {
+      include_credentials: true,
+    });
+    console.log(accountWithCreds.credentials);
+    ```
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Server SDK reference" href="/connect/sdk/server">
+    Full reference for `createBackendClient`, token creation, account management, proxy requests, and action runs
+  </Card>
+  <Card title="Browser SDK reference" href="/connect/sdk/browser">
+    Full reference for `createFrontendClient` and `connectAccount`
+  </Card>
+  <Card title="React components" href="/connect/react">
+    Use pre-built components to let users configure actions without writing custom UI
+  </Card>
+  <Card title="Managed auth" href="/connect/managed-auth">
+    Use your own OAuth clients so your brand appears in the consent screen
+  </Card>
+</CardGroup>

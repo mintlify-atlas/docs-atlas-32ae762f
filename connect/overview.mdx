@@ -1,0 +1,90 @@
+---
+title: "Pipedream Connect"
+description: "Embed auth and API actions from 2,500+ integrations directly in your product."
+---
+
+Pipedream Connect lets you embed third-party auth and API actions into your own app. Instead of building OAuth flows, managing tokens, and writing API client code for every service your customers want to connect, you delegate that work to Pipedream.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/connect/quickstart">
+    Get a connected account in under 5 minutes
+  </Card>
+  <Card title="Server SDK" icon="server" href="/connect/sdk/server">
+    Create tokens, retrieve accounts, run actions
+  </Card>
+  <Card title="Browser SDK" icon="globe" href="/connect/sdk/browser">
+    Trigger OAuth flows from the browser
+  </Card>
+  <Card title="React components" icon="react" href="/connect/react">
+    Drop-in components for connecting accounts and configuring actions
+  </Card>
+  <Card title="Managed auth" icon="lock" href="/connect/managed-auth">
+    Use your own OAuth clients for white-labeled connections
+  </Card>
+  <Card title="MCP Server" icon="robot" href="/connect/mcp/overview">
+    Expose 2,800+ apps as MCP tools to any AI agent
+  </Card>
+</CardGroup>
+
+## How Connect works
+
+Connect has three layers:
+
+1. **Your server** — authenticates your end users and requests short-lived Connect tokens from Pipedream using the server SDK (`@pipedream/sdk/server`).
+2. **Your frontend** — uses those tokens with the browser SDK (`@pipedream/sdk/browser`) or React components (`@pipedream/connect-react`) to let users connect accounts and configure actions.
+3. **Pipedream** — handles OAuth redirects, stores credentials, refreshes tokens, and exposes them back to your server through the Connect API.
+
+```
+Your server  ──createConnectToken()──▶  Pipedream API
+     │                                        │
+     │  token                                 │  stores credentials
+     ▼                                        ▼
+Your frontend ──connectAccount(app)──▶  Pipedream Connect UI
+```
+
+## Key concepts
+
+### Projects
+
+A Pipedream project is the organizational unit for Connect. All connected accounts for your users are scoped to a project. You need a `projectId` to initialize the server SDK.
+
+### External users
+
+An **external user** is one of your end users, identified by any string ID you already use in your system (a database primary key, UUID, email address, etc.). Pipedream stores connected accounts under this ID so you can retrieve credentials for a specific user at any time.
+
+### Connect tokens
+
+A **connect token** is a short-lived, scoped credential your server mints for a specific external user. The frontend SDK uses this token to open the Pipedream Connect UI, where the user completes the OAuth flow. Tokens are single-use — once an account is connected, you need a new token for the next connection.
+
+### Accounts
+
+An **account** (`Account` type) represents a connected third-party credential for one of your external users. Accounts have a stable `id` you can use to make proxy API requests or pass to action runs.
+
+## Packages
+
+| Package | Environment | Purpose |
+|---|---|---|
+| `@pipedream/sdk/server` | Node.js server | Create tokens, manage accounts, run actions |
+| `@pipedream/sdk/browser` | Browser | Trigger OAuth flows via `connectAccount()` |
+| `@pipedream/connect-react` | React (browser) | Pre-built components for auth and action configuration |
+
+```bash
+npm install @pipedream/sdk @pipedream/connect-react
+```
+
+## Authentication
+
+The server SDK authenticates to the Pipedream API using an OAuth client you create in the Pipedream dashboard. The `clientId` and `clientSecret` are only used server-side — never expose them to the browser.
+
+<Warning>
+Never pass `clientId`, `clientSecret`, or raw account credentials to browser-side code. Use short-lived connect tokens for all frontend operations.
+</Warning>
+
+## Supported environments
+
+Connect supports two project environments:
+
+- **`development`** — for local testing. Connected accounts are isolated from production.
+- **`production`** — for live traffic.
+
+Pass `environment` when initializing both the server and browser clients.

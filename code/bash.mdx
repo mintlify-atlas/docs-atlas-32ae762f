@@ -1,0 +1,236 @@
+---
+title: "Bash"
+description: "Run Bash scripts in any workflow step. Use standard Unix tools, curl, jq, and environment variables to integrate with any API or process data."
+keywords: ["Bash", "shell", "curl", "jq", "custom code", "Unix"]
+---
+
+Bash steps run in a sandboxed Linux environment. Standard tools including `curl`, `jq`, `python3`, `git`, `openssl`, and GNU coreutils are available.
+
+## Basic structure
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Your script here
+echo "Running workflow step"
+```
+
+<Note>
+  `set -euo pipefail` is recommended. It causes the step to fail immediately on any error (`-e`), treats unset variables as errors (`-u`), and propagates pipe failures (`-o pipefail`).
+</Note>
+
+## Using curl and jq
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+API_KEY="${MY_SERVICE_API_KEY}"
+ENDPOINT="https://api.example.com/v2/events"
+
+# Fetch and parse JSON
+response=$(curl -sf \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H "Accept: application/json" \
+  "${ENDPOINT}?limit=50&status=pending")
+
+# Extract fields with jq
+count=$(echo "${response}"    | jq '.total')
+first=$(echo "${response}"    | jq -r '.events[0].id')
+events=$(echo "${response}"   | jq '.events')
+
+echo "Found ${count} pending events, first ID: ${first}"
+echo "${events}" | jq -r '.[] | "\(.id) \(.created_at) \(.type)"'
+```
+
+## Environment variables
+
+Access environment variables set in Project Settings → Environment Variables:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Direct expansion
+echo "Region: ${AWS_REGION}"
+
+# With a default value
+ENVIRONMENT="${DEPLOY_ENV:-production}"
+
+# Guard against missing required variable
+: "${DATABASE_URL?DATABASE_URL must be set}"
+
+curl -sf \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  "https://api.example.com/health"
+```
+
+## Processing API responses
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+GITHUB_TOKEN="${GITHUB_TOKEN}"
+REPO="${GITHUB_REPO}"           # e.g. "acme/backend"
+
+# Fetch open PRs
+prs=$(curl -sf \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/${REPO}/pulls?state=open&per_page=100")
+
+# Count by label
+count=$(echo "${prs}" | jq 'length')
+bugs=$(echo "${prs}"  | jq '[.[] | select(.labels[].name == "bug")] | length')
+feats=$(echo "${prs}" | jq '[.[] | select(.labels[].name == "enhancement")] | length')
+
+echo "Open PRs: ${count} (bugs: ${bugs}, features: ${feats})"
+
+# List stale PRs (no update in 14+ days)
+cutoff=$(date -d '14 days ago' --iso-8601=seconds 2>/dev/null || \
+         date -v-14d +"%Y-%m-%dT%H:%M:%SZ")  # macOS fallback
+
+echo "\nStale PRs (no activity since ${cutoff}):"
+echo "${prs}" | jq -r \
+  --arg cutoff "${cutoff}" \
+  '.[] | select(.updated_at < $cutoff) | "#\(.number) \(.title) — \(.user.login)"'
+```
+
+## Calling other scripts and tools
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Use Python for heavy data processing
+python3 - <<'PYEOF'
+import json, sys
+
+data = [{"id": i, "value": i * 2.5} for i in range(1, 11)]
+print(json.dumps({"records": data, "count": len(data)}))
+PYEOF
+
+# Use openssl for HMAC signature generation
+TIMESTAMP=$(date +%s)
+PAYLOAD="{\"event\": \"deploy\", \"ts\": ${TIMESTAMP}}"
+SIG=$(echo -n "${PAYLOAD}" | \
+      openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" -binary | \
+      xxd -p | tr -d '\n')
+
+curl -sf -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: ${SIG}" \
+  -d "${PAYLOAD}" \
+  "https://hooks.example.com/deploy"
+
+echo "Deploy webhook sent with signature: ${SIG:0:16}..."
+```
+
+## File operations
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf ${WORKDIR}" EXIT
+
+cd "${WORKDIR}"
+
+# Download a file
+curl -sf -o data.csv \
+  -H "Authorization: Bearer ${API_KEY}" \
+  "https://exports.example.com/latest.csv"
+
+# Count rows (excluding header)
+ROWS=$(( $(wc -l < data.csv) - 1 ))
+echo "Downloaded ${ROWS} rows"
+
+# Extract specific columns with awk
+awk -F',' 'NR>1 { print $1, $3, $5 }' data.csv | \
+  sort -k3 -rn | \
+  head -20
+
+# Upload processed output somewhere
+curl -sf -X PUT \
+  -H "Authorization: Bearer ${API_KEY}" \
+  --data-binary @data.csv \
+  "https://api.example.com/uploads/latest.csv"
+```
+
+## Conditional logic and error handling
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+SERVICE_URL="${SERVICE_URL}"
+
+# Health check with retry
+for i in 1 2 3; do
+  status=$(curl -sf -o /dev/null -w "%{http_code}" "${SERVICE_URL}/health" || echo "000")
+
+  if [ "${status}" = "200" ]; then
+    echo "Service healthy (attempt ${i})"
+    break
+  fi
+
+  echo "Attempt ${i}: got HTTP ${status}, retrying in 5s..."
+  if [ ${i} -eq 3 ]; then
+    echo "Service unhealthy after 3 attempts" >&2
+    exit 1
+  fi
+  sleep 5
+done
+
+# Check a feature flag from a Data Store via Pipedream API
+FLAG=$(curl -sf \
+  -H "Authorization: Bearer ${PIPEDREAM_API_KEY}" \
+  "https://api.pipedream.com/v1/data/stores/${DATA_STORE_ID}/records/feature_new_ui" \
+  | jq -r '.data.value // "false"')
+
+if [ "${FLAG}" = "true" ]; then
+  echo "New UI flag enabled — running v2 pipeline"
+  # ...
+else
+  echo "Running v1 pipeline"
+  # ...
+fi
+```
+
+## Available tools
+
+<AccordionGroup>
+  <Accordion title="HTTP and networking">
+    - `curl` — HTTP client
+    - `wget` — File downloader
+    - `netcat` (`nc`) — TCP/UDP utility
+    - `openssl` — TLS and cryptographic operations
+    - `ssh` / `scp` — Secure shell and file copy
+  </Accordion>
+  <Accordion title="Data processing">
+    - `jq` — JSON processor
+    - `awk` — Text processing
+    - `sed` — Stream editor
+    - `python3` — Python interpreter (with standard library)
+    - `sort`, `uniq`, `cut`, `tr`, `wc` — Text utilities
+  </Accordion>
+  <Accordion title="File and archive tools">
+    - `tar`, `gzip`, `zip`, `unzip` — Archive tools
+    - `base64` — Encode/decode
+    - `md5sum`, `sha256sum` — Checksums
+    - `diff`, `patch` — File comparison
+  </Accordion>
+  <Accordion title="System utilities">
+    - `date` — Date/time formatting
+    - `env`, `printenv` — Environment inspection
+    - `mktemp` — Temporary file/directory creation
+    - `xargs` — Argument building
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Bash steps run in an ephemeral container. Files written to the filesystem are discarded after the step finishes. Use environment variables, step exports, or a Data Store for anything you need to persist.
+</Warning>

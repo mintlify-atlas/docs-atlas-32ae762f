@@ -1,0 +1,372 @@
+---
+title: "Component development guidelines"
+description: "Standards, best practices, and the contribution process for building Pipedream sources and actions."
+---
+
+These guidelines apply to all components contributed to the [Pipedream registry](https://github.com/PipedreamHQ/pipedream/tree/master/components) — the public open-source library of sources and actions. Following them ensures components work reliably, are easy to use, and can be maintained by the community.
+
+## Core principles
+
+1. **Single responsibility.** Each component should do exactly one thing. A source that watches for new GitHub issues is better than one that watches for both issues and pull requests.
+2. **Descriptive user-facing strings.** Labels, descriptions, and summaries are read by developers who may not know the underlying API. Be specific.
+3. **Predictable versioning.** Increment the version in semver any time you change component behavior or the props interface. Never change a component's `key`.
+4. **Deduplication for all polling sources.** Any source that polls an API must set `dedupe` and provide a stable `id` in every `$emit` call.
+5. **Meaningful step summaries.** Every action must call `$.export("$summary", "...")` with a description of what happened.
+
+---
+
+## Naming conventions
+
+### Component keys
+
+Keys follow the pattern `{app-slug}-{verb}-{noun}`. Use kebab-case throughout.
+
+```
+github-new-commit          ✓
+github-new-issue-with-status  ✓
+slack_bot-new-message-in-channel  ✓
+
+github_newCommit           ✗  (camelCase)
+newCommitGithub            ✗  (wrong order)
+github-commit              ✗  (no verb)
+```
+
+### Component names
+
+Names are title-cased and human-readable. They appear in the Pipedream UI component picker.
+
+```
+"New Commit"                          ✓
+"New Message In Channel"              ✓
+"Project Item Status Changed"         ✓
+
+"github new commit"                   ✗  (not title case)
+"Emits when there is a new commit"    ✗  (too verbose)
+```
+
+### File and directory names
+
+Each component lives in its own directory named after its key (without the app prefix), inside the app's `sources/` or `actions/` directory:
+
+```
+components/
+  github/
+    sources/
+      new-commit/
+        new-commit.mjs     ← main component file
+      new-release/
+        new-release.mjs
+    actions/
+      create-issue/
+        create-issue.mjs
+```
+
+Shared logic goes in `common/`:
+
+```
+components/
+  github/
+    sources/
+      common/
+        common-webhook.mjs  ← shared webhook base
+        constants.mjs
+        utils.mjs
+```
+
+---
+
+## Prop guidelines
+
+### Every prop needs a label and description
+
+```javascript
+// ✓ Good
+repoFullname: {
+  type: "string",
+  label: "Repository",
+  description: "The full name of the repository, e.g. `owner/repo`.",
+},
+
+// ✗ Bad — no label or description
+repoFullname: {
+  type: "string",
+},
+```
+
+### Use `options` for known value sets
+
+When an API returns a fixed set of valid values, enumerate them in `options` rather than accepting free text:
+
+```javascript
+state: {
+  type: "string",
+  label: "Issue state",
+  description: "Filter issues by state.",
+  options: [
+    { label: "Open", value: "open" },
+    { label: "Closed", value: "closed" },
+    { label: "All", value: "all" },
+  ],
+  default: "open",
+},
+```
+
+### Use dynamic `options()` for API-fetched values
+
+For values that come from the API (repos, channels, projects), implement an async `options()` function that fetches and returns them:
+
+```javascript
+channelId: {
+  type: "string",
+  label: "Channel",
+  description: "Select the channel to watch.",
+  async options() {
+    const channels = await this.app.listChannels();
+    return channels.map((c) => ({
+      label: `#${c.name}`,
+      value: c.id,
+    }));
+  },
+},
+```
+
+### Mark optional props explicitly
+
+```javascript
+itemType: {
+  type: "string[]",
+  label: "Filter item type",
+  description: "Limit events to specific item types. Leave empty to emit all types.",
+  optional: true,
+  options: ["Issue", "PullRequest", "DraftIssue"],
+},
+```
+
+---
+
+## Source-specific guidelines
+
+### Always deduplicate
+
+Every polling source must:
+1. Set `dedupe: "unique"` (or `"last"` / `"greatest"` where appropriate).
+2. Pass a stable, unique `id` to every `this.$emit()` call.
+
+```javascript
+export default {
+  dedupe: "unique",
+  // ...
+  async run() {
+    for (const item of items) {
+      this.$emit(item, {
+        id: item.id,          // ✓ stable across runs
+        summary: item.title,
+        ts: Date.parse(item.created_at),
+      });
+    }
+  },
+};
+```
+
+<Warning>
+Never use `Date.now()` or any random value as the `id`. These change on every run and will defeat deduplication.
+</Warning>
+
+### Emit in chronological order
+
+Sort items oldest-first before emitting. Pipedream delivers events to workflows in the order they are emitted — out-of-order events make debugging harder.
+
+```javascript
+const sorted = items.sort((a, b) =>
+  Date.parse(a.created_at) - Date.parse(b.created_at)
+);
+for (const item of sorted) {
+  this.$emit(item, { id: item.id, ts: Date.parse(item.created_at) });
+}
+```
+
+### Use hooks for webhook registration
+
+If your source uses webhooks, register them in `hooks.activate()` and remove them in `hooks.deactivate()`. Store the webhook ID in the data store so `deactivate()` can clean up.
+
+```javascript
+hooks: {
+  async activate() {
+    const webhook = await this.app.createWebhook({
+      url: this.http.endpoint,
+      events: ["push", "pull_request"],
+    });
+    this.db.set("webhookId", webhook.id);
+  },
+  async deactivate() {
+    const webhookId = this.db.get("webhookId");
+    if (webhookId) {
+      await this.app.deleteWebhook({ webhookId });
+    }
+  },
+},
+```
+
+### Log skipped events
+
+When a source receives a webhook payload but decides not to emit (e.g., wrong event type), log a reason:
+
+```javascript
+if (fieldChanged !== "Status") {
+  console.log(`Field changed: "${fieldChanged}". Skipping.`);
+  return;
+}
+```
+
+This makes debugging much easier for users who don't see events they expected.
+
+---
+
+## Action-specific guidelines
+
+### Always export `$summary`
+
+```javascript
+async run({ $ }) {
+  const result = await this.app.createIssue({ title: this.title });
+  $.export("$summary", `Created issue #${result.number}: ${result.title}`);
+  return result;
+},
+```
+
+The summary appears in the workflow builder after the step runs. Without it, users see a generic placeholder.
+
+### Return the full API response
+
+Return the entire API response object from `run()`, not just a subset. Downstream steps may need fields you didn't anticipate.
+
+```javascript
+async run({ $ }) {
+  const response = await $.http.post("https://api.example.com/items", payload);
+  $.export("$summary", `Created item ${response.data.id}`);
+  return response.data;  // ✓ full response
+},
+```
+
+### Throw on API errors
+
+Check the API response for errors and throw descriptive exceptions. Don't silently swallow errors.
+
+```javascript
+if (!response.data.ok) {
+  throw new Error(
+    `Slack API error: ${response.data.error}. ` +
+    `See https://api.slack.com/methods/chat.postMessage#errors`
+  );
+}
+```
+
+---
+
+## Versioning
+
+| Change type | Version bump |
+|---|---|
+| New optional prop | Patch (`0.0.1` → `0.0.2`) |
+| Bug fix with no interface change | Patch |
+| New required prop | Minor (`0.0.x` → `0.1.0`) |
+| Removed or renamed prop | Minor |
+| Breaking change to emitted event shape | Major (`0.x.x` → `1.0.0`) |
+
+Always bump the version when you modify a component. Never change a component's `key` after it has been published — create a new component with a new key instead.
+
+---
+
+## Testing components
+
+Before opening a PR, verify your component works end-to-end:
+
+<Steps>
+  <Step title="Deploy locally with the CLI">
+    ```bash
+    pd deploy path/to/your-component.mjs
+    ```
+    The CLI will prompt for prop values and deploy to your account.
+  </Step>
+  <Step title="Trigger the source or run the action">
+    For sources, trigger a test event from the external service or use `pd dev` to trigger it manually. For actions, add the step to a test workflow and run it.
+  </Step>
+  <Step title="Inspect the emitted event or step output">
+    In the Pipedream UI, check the event log (sources) or step output (actions). Verify the payload shape is correct and the summary is descriptive.
+  </Step>
+  <Step title="Test edge cases">
+    Test with empty results, API errors, and missing optional props. The component should handle them gracefully.
+  </Step>
+</Steps>
+
+---
+
+## Contribution process
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork [PipedreamHQ/pipedream](https://github.com/PipedreamHQ/pipedream) on GitHub and create a new branch for your changes.
+  </Step>
+  <Step title="Set up your dev environment">
+    You can develop entirely in the browser using the pre-configured Gitpod workspace:
+
+    ```bash
+    # Open in Gitpod (add your PD_API_KEY to Gitpod Variables first)
+    https://gitpod.io/#https://github.com/<your-username>/pipedream
+    ```
+
+    Or develop locally after installing the CLI:
+
+    ```bash
+    npm install -g @pipedream/sdk
+    pd login
+    ```
+  </Step>
+  <Step title="Scaffold a new component">
+    ```bash
+    pd init app
+    ```
+    The CLI guides you through creating the directory structure and boilerplate for a new app or component.
+  </Step>
+  <Step title="Build and test your component">
+    Follow the testing steps above. Make sure it deploys cleanly and emits well-formed events.
+  </Step>
+  <Step title="Open a pull request">
+    Submit a PR against the `master` branch. A Pipedream team member will review it. You can also ask questions in the [community](https://pipedream.com/community/c/dev/11) or on [Slack](https://pipedream.com/support).
+  </Step>
+</Steps>
+
+<Note>
+A spellchecker runs automatically on all Markdown files in PRs. If it fails on a valid technical term, add the word to `.wordlist.txt` in the repo root.
+</Note>
+
+---
+
+## Checklist
+
+Before submitting a PR, confirm:
+
+<AccordionGroup>
+  <Accordion title="Sources">
+    - [ ] `key` follows `{app}-{verb}-{noun}` format
+    - [ ] `version` incremented from the previous release
+    - [ ] `dedupe` set to `"unique"`, `"last"`, or `"greatest"`
+    - [ ] Every `$emit` call has a stable `id`
+    - [ ] Events emitted in chronological order
+    - [ ] Every prop has a `label` and `description`
+    - [ ] Optional props marked with `optional: true`
+    - [ ] Webhook sources register and deregister in `hooks.activate/deactivate`
+    - [ ] Skipped events logged to `console.log`
+    - [ ] Tested end-to-end with the CLI
+  </Accordion>
+  <Accordion title="Actions">
+    - [ ] `key` follows `{app}-{verb}-{noun}` format
+    - [ ] `version` incremented from the previous release
+    - [ ] `$.export("$summary", "...")` called with a meaningful description
+    - [ ] Full API response returned from `run()`
+    - [ ] API errors thrown with descriptive messages
+    - [ ] Every prop has a `label` and `description`
+    - [ ] Optional props marked with `optional: true`
+    - [ ] Tested end-to-end in a workflow
+  </Accordion>
+</AccordionGroup>

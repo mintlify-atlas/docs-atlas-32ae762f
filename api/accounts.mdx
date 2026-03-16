@@ -1,0 +1,235 @@
+---
+title: "Accounts"
+description: "Manage connected accounts and external users with the Pipedream Connect API."
+---
+
+The Connect API lets you build integrations on behalf of your users. You create a token that opens an auth flow for your user, and Pipedream securely stores the resulting credentials. You can then proxy authenticated API calls through Pipedream without handling OAuth tokens directly.
+
+<Note>
+Connect API endpoints authenticate with an **OAuth access token**, not a personal API key. See [Authentication](/api/auth#oauth-client-credentials-connect-api) for how to obtain one.
+</Note>
+
+## Connect tokens
+
+### Create a Connect token
+
+`POST /v1/connect/tokens`
+
+Creates a short-lived token that grants a specific external user permission to connect an account. Present this token in your frontend to open the Pipedream Connect auth flow.
+
+#### Request body
+
+<ParamField body="external_user_id" type="string" required>
+  Your internal identifier for the user connecting their account.
+</ParamField>
+
+<ParamField body="allowed_origins" type="string[]">
+  List of allowed origins for the Connect flow, e.g. `["https://your-app.com"]`.
+</ParamField>
+
+<ParamField body="success_redirect_uri" type="string">
+  URL to redirect to after a successful connection.
+</ParamField>
+
+<ParamField body="error_redirect_uri" type="string">
+  URL to redirect to on error.
+</ParamField>
+
+```bash
+curl -X POST https://api.pipedream.com/v1/connect/tokens \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "external_user_id": "user_12345",
+    "allowed_origins": ["https://your-app.com"],
+    "success_redirect_uri": "https://your-app.com/connected"
+  }'
+```
+
+```json
+{
+  "data": {
+    "token": "cct_abc123xyz",
+    "expires_at": 1710203600
+  }
+}
+```
+
+---
+
+## Accounts
+
+### List connected accounts
+
+`GET /v1/connect/accounts`
+
+Returns all connected accounts for the project.
+
+#### Query parameters
+
+<ParamField query="app" type="string">
+  Filter by app slug, e.g. `github`, `slack`.
+</ParamField>
+
+<ParamField query="external_user_id" type="string">
+  Filter by your internal user ID.
+</ParamField>
+
+<ParamField query="limit" type="number" default="10">
+  Maximum number of accounts to return.
+</ParamField>
+
+```bash
+curl "https://api.pipedream.com/v1/connect/accounts?app=slack" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "apn_abc123",
+      "name": "My Slack workspace",
+      "app": "slack",
+      "external_user_id": "user_12345",
+      "healthy": true,
+      "created_at": 1710000000
+    }
+  ]
+}
+```
+
+---
+
+### Get account
+
+`GET /v1/connect/accounts/{id}`
+
+Returns a single connected account.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The account ID, e.g. `apn_abc123`.
+</ParamField>
+
+```bash
+curl https://api.pipedream.com/v1/connect/accounts/apn_abc123 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Delete account
+
+`DELETE /v1/connect/accounts/{id}`
+
+Revokes and permanently deletes a connected account.
+
+```bash
+curl -X DELETE https://api.pipedream.com/v1/connect/accounts/apn_abc123 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Delete all accounts for an app
+
+`DELETE /v1/connect/accounts/app/{app_id}`
+
+Deletes all connected accounts for a specific app across all external users in your project.
+
+#### Path parameters
+
+<ParamField path="app_id" type="string" required>
+  The app slug, e.g. `slack`, `github`.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pipedream.com/v1/connect/accounts/app/slack \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+## External users
+
+### List accounts for a user
+
+`GET /v1/connect/users/{external_user_id}/accounts`
+
+Returns all connected accounts belonging to a specific external user.
+
+#### Path parameters
+
+<ParamField path="external_user_id" type="string" required>
+  Your internal identifier for the user.
+</ParamField>
+
+```bash
+curl https://api.pipedream.com/v1/connect/users/user_12345/accounts \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Delete external user
+
+`DELETE /v1/connect/users/{external_user_id}`
+
+Deletes an external user and all their connected accounts. Use this when a user deletes their account in your application.
+
+```bash
+curl -X DELETE https://api.pipedream.com/v1/connect/users/user_12345 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+## Project info
+
+### Get project info
+
+`GET /v1/connect/projects/info`
+
+Returns metadata about the current Connect project, including configured apps and usage stats.
+
+```bash
+curl https://api.pipedream.com/v1/connect/projects/info \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+## Proxy API requests
+
+### Proxy request
+
+`POST /v1/connect/proxy/{url_encoded_target_url}`
+
+Proxies an authenticated API request to a third-party service using one of the user's connected accounts. Pipedream injects the correct auth credentials automatically.
+
+#### Path parameters
+
+<ParamField path="url_encoded_target_url" type="string" required>
+  The target API URL, percent-encoded. For example, `https%3A%2F%2Fapi.github.com%2Fuser%2Frepos`.
+</ParamField>
+
+#### Request body
+
+Pass the request method, headers, and body you want forwarded to the target API as the request body.
+
+```bash
+curl -X POST \
+  "https://api.pipedream.com/v1/connect/proxy/https%3A%2F%2Fapi.github.com%2Fuser%2Frepos" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account_id": "apn_abc123",
+    "method": "GET"
+  }'
+```
+
+<Tip>
+Use the proxy endpoint to make authenticated third-party API calls from your backend without storing OAuth tokens yourself.
+</Tip>

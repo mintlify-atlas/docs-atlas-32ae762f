@@ -1,0 +1,281 @@
+---
+title: "Go"
+description: "Run Go in any workflow step. Use the pipedream-go package to export data and access step inputs, and import any Go module."
+keywords: ["Go", "Golang", "custom code", "pipedream-go"]
+---
+
+Go steps compile and run Go source code directly in the workflow. Use the `github.com/PipedreamHQ/pipedream-go` package to interact with the Pipedream runtime.
+
+## Basic structure
+
+```go
+package main
+
+import (
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+func main() {
+    pd.Export("message", "hello from Go")
+}
+```
+
+The `pd.Export(key, value)` function makes a value available to downstream steps as `steps.<step_name>.<key>`.
+
+## Importing modules
+
+Declare module imports using standard Go syntax. Pipedream fetches and caches dependencies automatically.
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+type GitHubRepo struct {
+    FullName        string `json:"full_name"`
+    Stars           int    `json:"stargazers_count"`
+    OpenIssues      int    `json:"open_issues_count"`
+    DefaultBranch   string `json:"default_branch"`
+    Language        string `json:"language"`
+}
+
+func main() {
+    repo := os.Getenv("GITHUB_REPO") // e.g. "PipedreamHQ/pipedream"
+    token := os.Getenv("GITHUB_TOKEN")
+
+    req, _ := http.NewRequest("GET",
+        fmt.Sprintf("https://api.github.com/repos/%s", repo),
+        nil,
+    )
+    req.Header.Set("Authorization", "Bearer "+token)
+    req.Header.Set("Accept", "application/vnd.github+json")
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        panic(fmt.Sprintf("request failed: %v", err))
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    var r GitHubRepo
+    if err := json.Unmarshal(body, &r); err != nil {
+        panic(fmt.Sprintf("unmarshal failed: %v", err))
+    }
+
+    pd.Export("full_name",     r.FullName)
+    pd.Export("stars",         r.Stars)
+    pd.Export("open_issues",   r.OpenIssues)
+    pd.Export("language",      r.Language)
+}
+```
+
+## Exporting data
+
+All data returned to downstream steps must be explicitly exported with `pd.Export`. Exported values must be JSON-serializable.
+
+```go
+package main
+
+import (
+    "time"
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+type ProcessResult struct {
+    RecordsProcessed int       `json:"records_processed"`
+    Errors           []string  `json:"errors"`
+    CompletedAt      time.Time `json:"completed_at"`
+}
+
+func main() {
+    result := ProcessResult{
+        RecordsProcessed: 142,
+        Errors:           []string{},
+        CompletedAt:      time.Now().UTC(),
+    }
+
+    // Export the whole struct
+    pd.Export("result", result)
+
+    // Export individual fields too
+    pd.Export("count", result.RecordsProcessed)
+}
+```
+
+Access these in a downstream Node.js step:
+
+```javascript
+const result = steps.process_records.result;
+const count  = steps.process_records.count;
+```
+
+## Environment variables
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+func main() {
+    apiKey := os.Getenv("MY_SERVICE_API_KEY")
+    if apiKey == "" {
+        panic("MY_SERVICE_API_KEY is not set")
+    }
+
+    region := os.Getenv("AWS_REGION")
+    if region == "" {
+        region = "us-east-1"
+    }
+
+    pd.Export("config", map[string]string{
+        "region": region,
+        "key_set": fmt.Sprintf("%v", apiKey != ""),
+    })
+}
+```
+
+## Concurrent processing
+
+Go's concurrency primitives work normally inside a workflow step.
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "sync"
+
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func fetchUser(id int) (*User, error) {
+    resp, err := http.Get(fmt.Sprintf("https://jsonplaceholder.typicode.com/users/%d", id))
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    var user User
+    if err := json.Unmarshal(body, &user); err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func main() {
+    userIDs := []int{1, 2, 3, 4, 5}
+
+    var mu sync.Mutex
+    var wg sync.WaitGroup
+    users := make([]User, 0, len(userIDs))
+    errs  := make([]string, 0)
+
+    for _, id := range userIDs {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            user, err := fetchUser(id)
+            mu.Lock()
+            defer mu.Unlock()
+            if err != nil {
+                errs = append(errs, fmt.Sprintf("user %d: %v", id, err))
+                return
+            }
+            users = append(users, *user)
+        }(id)
+    }
+    wg.Wait()
+
+    pd.Export("users",  users)
+    pd.Export("errors", errs)
+    pd.Export("count",  len(users))
+}
+```
+
+## JSON processing
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "sort"
+    pd "github.com/PipedreamHQ/pipedream-go"
+)
+
+type LineItem struct {
+    SKU      string  `json:"sku"`
+    Quantity int     `json:"quantity"`
+    Price    float64 `json:"price"`
+    Total    float64 `json:"total"`
+}
+
+type Order struct {
+    ID        string     `json:"id"`
+    LineItems []LineItem `json:"line_items"`
+    Subtotal  float64    `json:"subtotal"`
+    Tax       float64    `json:"tax"`
+    Total     float64    `json:"total"`
+}
+
+func main() {
+    // Raw JSON from a prior step
+    raw := []byte(`{
+        "id": "ord_abc123",
+        "line_items": [
+            {"sku": "WIDGET-S", "quantity": 2, "price": 19.99},
+            {"sku": "GADGET-M", "quantity": 1, "price": 49.99}
+        ]
+    }`)
+
+    var order Order
+    if err := json.Unmarshal(raw, &order); err != nil {
+        panic(err)
+    }
+
+    var subtotal float64
+    for i := range order.LineItems {
+        order.LineItems[i].Total = float64(order.LineItems[i].Quantity) * order.LineItems[i].Price
+        subtotal += order.LineItems[i].Total
+    }
+
+    // Sort by total descending
+    sort.Slice(order.LineItems, func(i, j int) bool {
+        return order.LineItems[i].Total > order.LineItems[j].Total
+    })
+
+    order.Subtotal = subtotal
+    order.Tax      = subtotal * 0.08
+    order.Total    = order.Subtotal + order.Tax
+
+    pd.Export("order",    order)
+    pd.Export("subtotal", order.Subtotal)
+    pd.Export("total",    order.Total)
+}
+```
+
+<Note>
+  Go steps do not have access to `steps` data from prior steps via the `pd` package at this time. Pass data between steps by serializing values to environment-style inputs or by reading from a Data Store using the Pipedream API.
+</Note>

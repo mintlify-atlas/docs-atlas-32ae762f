@@ -1,0 +1,96 @@
+---
+title: "Managed Auth"
+description: "Use your own OAuth clients so your brand appears in the consent screen and authorization dialog."
+---
+
+By default, when a user connects an OAuth app through Pipedream Connect, they see Pipedream's OAuth client in the authorization dialog. With **managed auth**, you register your own OAuth client for specific apps so users see your app's name and branding instead.
+
+## When to use managed auth
+
+- You want your brand name to appear in the OAuth consent screen (e.g. "MyApp wants to access your Slack workspace")
+- Your users expect a white-labeled integration experience
+- You need control over the exact OAuth scopes requested
+- Compliance or enterprise requirements mandate that you own the OAuth application
+
+## How it works
+
+<Steps>
+  <Step title="Create an OAuth application in the third-party service">
+    Go to the developer settings of the app you want to integrate (e.g. Slack, Google, GitHub) and create an OAuth application. You'll need:
+
+    - A **Client ID** and **Client Secret** from the provider
+    - To set the redirect URI to Pipedream's callback URL (shown in the Pipedream dashboard when you configure the OAuth client)
+  </Step>
+
+  <Step title="Register your OAuth client in Pipedream">
+    In the Pipedream dashboard, go to **Settings → OAuth Clients** and create a new OAuth client for the app. Paste in your Client ID and Client Secret from step 1.
+
+    After saving, Pipedream gives you an **OAuth App ID** in the format `oa_xxxxxxx`. This ID is not sensitive and is safe to use in frontend code.
+  </Step>
+
+  <Step title="Pass the OAuth App ID when connecting accounts">
+    Reference your OAuth App ID when triggering the Connect flow. Pipedream will use your registered OAuth client instead of its own.
+
+    <Tabs>
+      <Tab title="Browser SDK">
+        ```typescript
+        import { createFrontendClient } from "@pipedream/sdk/browser";
+
+        const client = createFrontendClient({
+          environment: "development",
+          externalUserId: "user-123",
+          tokenCallback: fetchTokenFromServer,
+        });
+
+        await client.connectAccount({
+          app: "slack",
+          oauthAppId: "oa_xxxxxxx", // your registered OAuth App ID
+          onSuccess: ({ id }) => console.log("Connected:", id),
+        });
+        ```
+      </Tab>
+      <Tab title="React">
+        ```tsx
+        import { ComponentFormContainer } from "@pipedream/connect-react";
+
+        const oauthAppConfig = {
+          slack: "oa_xxxxxxx",
+          google_sheets: "oa_xxxxxxx",
+        };
+
+        <ComponentFormContainer
+          userId={userId}
+          componentKey="slack-send-message"
+          configuredProps={configuredProps}
+          onUpdateConfiguredProps={setConfiguredProps}
+          oauthAppConfig={oauthAppConfig}
+        />
+        ```
+
+        The `oauthAppConfig` prop maps app name slugs to your OAuth App IDs. OAuth App IDs are not sensitive — they are safe to include in client-side code.
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## Retrieving accounts by OAuth App ID
+
+When fetching accounts server-side, you can filter by your OAuth App ID:
+
+```typescript
+const accounts = await client.getAccounts({
+  oauth_app_id: "oa_xxxxxxx",
+});
+```
+
+## Scopes
+
+Pipedream requests the minimum scopes required for the components in the [Pipedream registry](https://github.com/PipedreamHQ/pipedream/tree/master/components) to work. If you need to request additional or different scopes, configure them on the OAuth application in the third-party provider's developer console before registering the client in Pipedream.
+
+<Note>
+Not all apps support custom OAuth clients. Apps that use API key authentication (`auth_type: "keys"`) don't require an OAuth client — credentials are entered directly in the Connect UI.
+</Note>
+
+## Supported apps
+
+Managed auth is supported for all apps in the Pipedream registry that use OAuth. Use `getApps()` with `hasActions: true` or browse [pipedream.com/apps](https://pipedream.com/apps) to see the full list.

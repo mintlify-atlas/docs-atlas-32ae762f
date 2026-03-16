@@ -1,0 +1,149 @@
+---
+title: "Workflows"
+description: "List and retrieve workflows using the Pipedream REST API. Trigger workflows via their unique HTTP endpoint URL."
+---
+
+Workflows are sequences of steps triggered by an event. Use the Workflows API to list and retrieve workflow metadata. To trigger a workflow, send an HTTP request to its unique endpoint URL.
+
+<Note>
+The Workflows API is read-only. Create and edit workflows from the [Pipedream dashboard](https://pipedream.com).
+</Note>
+
+## Endpoints
+
+### List workflows
+
+`GET /v1/workflows`
+
+Returns all workflows in your account.
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="10">
+  Maximum number of workflows to return. Maximum value: `100`.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  Pagination cursor from a previous response's `page_info.end_cursor`.
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="object[]">
+  Array of workflow objects.
+  <Expandable title="workflow properties">
+    <ResponseField name="id" type="string" required>
+      Unique workflow identifier, e.g. `p_abc123`.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Display name of the workflow.
+    </ResponseField>
+    <ResponseField name="active" type="boolean">
+      Whether the workflow is currently active.
+    </ResponseField>
+    <ResponseField name="endpoint" type="string">
+      The unique HTTP endpoint URL for this workflow, if the trigger is an HTTP source.
+    </ResponseField>
+    <ResponseField name="created_at" type="number">
+      Unix timestamp when the workflow was created.
+    </ResponseField>
+    <ResponseField name="updated_at" type="number">
+      Unix timestamp of the last update.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="page_info" type="object">
+  Pagination metadata.
+  <Expandable title="page_info properties">
+    <ResponseField name="total_count" type="number">Total number of workflows.</ResponseField>
+    <ResponseField name="count" type="number">Number of workflows in this response.</ResponseField>
+    <ResponseField name="start_cursor" type="string">Cursor for the first item.</ResponseField>
+    <ResponseField name="end_cursor" type="string">Cursor for the last item. Pass to `cursor` to get the next page.</ResponseField>
+    <ResponseField name="has_more" type="boolean">Whether more results exist.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl https://api.pipedream.com/v1/workflows \
+  -H "Authorization: Bearer {api_key}"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "p_abc123",
+      "name": "New GitHub issue → Slack notification",
+      "active": true,
+      "endpoint": "https://en2dvfku2xtqvw2.m.pipedream.net",
+      "created_at": 1710000000,
+      "updated_at": 1710100000
+    }
+  ],
+  "page_info": {
+    "total_count": 42,
+    "count": 10,
+    "start_cursor": "c2RmZmFzZGY",
+    "end_cursor": "Y3VycmVudA",
+    "has_more": true
+  }
+}
+```
+
+---
+
+### Get workflow
+
+`GET /v1/workflows/{id}`
+
+Returns metadata for a single workflow.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The workflow ID, e.g. `p_abc123`.
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="object">
+  The workflow object. See [List workflows](#list-workflows) for field definitions.
+</ResponseField>
+
+```bash
+curl https://api.pipedream.com/v1/workflows/p_abc123 \
+  -H "Authorization: Bearer {api_key}"
+```
+
+```json
+{
+  "data": {
+    "id": "p_abc123",
+    "name": "New GitHub issue → Slack notification",
+    "active": true,
+    "endpoint": "https://en2dvfku2xtqvw2.m.pipedream.net",
+    "created_at": 1710000000,
+    "updated_at": 1710100000
+  }
+}
+```
+
+---
+
+## Triggering workflows via HTTP
+
+Workflows with an HTTP trigger expose a unique endpoint URL. Send any HTTP request to that URL to trigger the workflow:
+
+```bash
+# Trigger a workflow with a JSON payload
+curl -X POST https://en2dvfku2xtqvw2.m.pipedream.net \
+  -H "Content-Type: application/json" \
+  -d '{"event": "order.created", "order_id": 42}'
+```
+
+The workflow receives the full HTTP request — method, headers, query parameters, and body — as the trigger event.
+
+<Tip>
+Retrieve a workflow's endpoint URL from the `endpoint` field in the API response, or from the workflow's HTTP trigger step in the dashboard.
+</Tip>

@@ -1,0 +1,109 @@
+---
+title: "Authentication"
+description: "Authenticate requests to the Pipedream REST API using API keys or OAuth client credentials for the Connect API."
+---
+
+The Pipedream API supports two authentication methods depending on the resource you are accessing:
+
+- **API key** — for most REST API endpoints
+- **OAuth client credentials** — for the Connect API
+
+## API key authentication
+
+All standard API endpoints authenticate with a personal API key passed as a Bearer token in the `Authorization` header.
+
+```bash
+curl https://api.pipedream.com/v1/sources \
+  -H "Authorization: Bearer {api_key}"
+```
+
+### Getting your API key
+
+<Steps>
+  <Step title="Open account settings">
+    Navigate to [https://pipedream.com/settings/account](https://pipedream.com/settings/account) and sign in.
+  </Step>
+  <Step title="Copy your API key">
+    Your API key is listed under **API**. Click **Copy** to copy it to your clipboard.
+  </Step>
+  <Step title="Store it securely">
+    Store the key in an environment variable or a secrets manager. Never commit it to source control.
+  </Step>
+</Steps>
+
+<Warning>
+API keys are personal credentials. If a key is exposed, rotate it immediately from the account settings page. All existing tokens using the old key will stop working.
+</Warning>
+
+## OAuth client credentials (Connect API)
+
+The Connect API — used to manage connected accounts for your users — authenticates with an OAuth access token obtained from client credentials.
+
+### Obtaining an access token
+
+Exchange your `client_id` and `client_secret` for a short-lived access token:
+
+```bash
+curl -X POST https://api.pipedream.com/v1/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "{client_id}",
+    "client_secret": "{client_secret}"
+  }'
+```
+
+```json
+{
+  "access_token": "ya29.c.b0AXv0zTp...",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+Use the returned `access_token` as the Bearer token on Connect API requests:
+
+```bash
+curl https://api.pipedream.com/v1/connect/accounts \
+  -H "Authorization: Bearer {access_token}"
+```
+
+<Note>
+Access tokens expire after 1 hour. Your application should request a new token before the current one expires.
+</Note>
+
+## Environment variables
+
+Store credentials in environment variables to avoid hardcoding them:
+
+<CodeGroup>
+
+```bash Shell
+export PD_API_KEY="your_api_key_here"
+curl https://api.pipedream.com/v1/sources \
+  -H "Authorization: Bearer $PD_API_KEY"
+```
+
+```javascript Node.js
+const apiKey = process.env.PD_API_KEY;
+
+const response = await fetch("https://api.pipedream.com/v1/sources", {
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+  },
+});
+```
+
+```python Python
+import os
+import requests
+
+api_key = os.environ["PD_API_KEY"]
+
+response = requests.get(
+    "https://api.pipedream.com/v1/sources",
+    headers={"Authorization": f"Bearer {api_key}"},
+)
+```
+
+</CodeGroup>

@@ -1,0 +1,139 @@
+---
+title: "Workflows"
+description: "Workflows are sequences of steps triggered by an event. Each step executes code — a pre-built action or custom Node.js, Python, Go, or Bash — and passes data forward to the next step."
+keywords: ["workflow", "automation", "integration", "steps", "trigger", "event-driven"]
+---
+
+A workflow connects a **trigger** to one or more **steps**. When the trigger fires — an HTTP request arrives, a schedule ticks, or a new GitHub issue opens — Pipedream runs each step in sequence, passing data from step to step until the workflow completes.
+
+<CardGroup cols={2}>
+  <Card title="Steps" icon="list-ordered" href="/workflows/steps">
+    Understand how steps execute, export data, and chain together.
+  </Card>
+  <Card title="Triggers" icon="bolt" href="/workflows/triggers">
+    HTTP webhooks, schedules, app events, and email triggers.
+  </Card>
+  <Card title="Data Stores" icon="database" href="/workflows/data-stores">
+    Persist key-value state across workflow executions.
+  </Card>
+  <Card title="Custom Code" icon="code" href="/code/nodejs">
+    Write Node.js, Python, Go, or Bash when pre-built actions aren't enough.
+  </Card>
+</CardGroup>
+
+## How a workflow runs
+
+<Steps>
+  <Step title="Trigger fires">
+    An event — an HTTP POST, a cron tick, a new Slack message — starts the workflow and makes the raw event data available at `steps.trigger.event`.
+  </Step>
+  <Step title="Steps execute sequentially">
+    Each step runs in order. Steps can read data from any earlier step via `steps.<step_name>.$return_value` and export their own data for later steps.
+  </Step>
+  <Step title="Execution is logged">
+    Every execution is stored with full input/output for each step so you can inspect, replay, or debug any run from the Pipedream dashboard.
+  </Step>
+</Steps>
+
+## Anatomy of a workflow
+
+Every workflow has exactly one trigger and one or more action or code steps.
+
+```
+Trigger
+  └── Step 1: Parse and validate payload    (custom code)
+  └── Step 2: Enrich with third-party data  (custom code)
+  └── Step 3: Send Slack notification       (pre-built action)
+  └── Step 4: Write row to Google Sheets    (pre-built action)
+```
+
+Steps reference prior results using the step name:
+
+```javascript
+// In any downstream Node.js step:
+const payload   = steps.trigger.event.body;
+const enriched  = steps.enrich_data.$return_value;
+const messageTs = steps.send_slack.$return_value.ts;
+```
+
+```python
+# In any downstream Python step:
+payload   = pd.steps["trigger"]["event"]["body"]
+enriched  = pd.steps["enrich_data"]["$return_value"]
+```
+
+## Connected apps
+
+Connect an app account once in Pipedream, then reference it in any workflow step. Auth credentials are injected at runtime — you never handle tokens in plain text.
+
+```javascript
+import { WebClient } from "@slack/web-api";
+
+export default defineComponent({
+  props: {
+    slack: { type: "app", app: "slack" },
+  },
+  async run({ steps, $ }) {
+    const client = new WebClient(this.slack.$auth.oauth_access_token);
+
+    return await client.chat.postMessage({
+      channel: "#incidents",
+      text: `Alert: ${steps.trigger.event.body.message}`,
+    });
+  },
+});
+```
+
+## Environment variables
+
+Store secrets and configuration in **Project Settings → Environment Variables**. Access them in any step:
+
+<Tabs>
+  <Tab title="Node.js">
+    ```javascript
+    const apiKey = process.env.MY_API_KEY;
+    const region = process.env.AWS_REGION;
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import os
+    api_key = os.environ["MY_API_KEY"]
+    region  = os.environ["AWS_REGION"]
+    ```
+  </Tab>
+  <Tab title="Bash">
+    ```bash
+    curl -H "Authorization: Bearer $MY_API_KEY" \
+      "https://api.example.com/data"
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  Environment variables are encrypted at rest and never exposed in execution logs. Do not hard-code credentials directly in step code.
+</Warning>
+
+## Execution logs
+
+Every workflow execution is recorded. From the dashboard you can:
+
+- Inspect each step's input and output
+- See `console.log` / `print` output inline
+- Replay a specific event through the workflow
+- Filter executions by status (success, error, canceled)
+
+<Tip>
+  Use `$.flow.exit("reason")` in a Node.js step to stop a workflow early without marking it as an error — useful for deduplication or conditional branching.
+</Tip>
+
+## Limits
+
+| Resource | Free tier |
+|---|---|
+| Executions per month | 10,000 |
+| Execution timeout | 30 seconds (extendable on paid plans) |
+| Memory per step | 512 MB |
+| Payload size | 512 KB |
+
+See the [limits documentation](https://pipedream.com/docs/limits/) for full details and paid-plan limits.

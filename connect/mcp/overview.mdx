@@ -1,0 +1,106 @@
+---
+title: "MCP Server Overview"
+description: "Expose 2,800+ APIs as Model Context Protocol tools to any AI agent or LLM client."
+---
+
+Pipedream hosts a **remote MCP server** that gives any MCP-compatible AI agent or LLM client access to over 2,800 apps and 10,000+ pre-built tools — with built-in auth management and no manual token handling required.
+
+<CardGroup cols={2}>
+  <Card title="For developers" icon="code" href="/connect/mcp/developers">
+    Embed the MCP server in your own AI product using Pipedream Connect
+  </Card>
+  <Card title="Try it now" icon="comment" href="https://chat.pipedream.com">
+    Open-source chat app powered by the Pipedream MCP server
+  </Card>
+</CardGroup>
+
+## What is MCP?
+
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) is an open standard for connecting AI models to external tools and data sources. MCP clients (Claude Desktop, Cursor, custom AI agents) connect to MCP servers that expose tools — functions the AI can call to take actions in the world.
+
+Pipedream's MCP server turns every Pipedream action into an MCP tool, so your AI agents can send Slack messages, query databases, create GitHub issues, and thousands of other tasks — authenticated as your users.
+
+## Remote MCP server
+
+Pipedream hosts a production-ready MCP server at:
+
+```
+https://remote.mcp.pipedream.net
+```
+
+The server supports two transport protocols:
+
+| Transport | Endpoint pattern |
+|---|---|
+| SSE (Server-Sent Events) | `https://remote.mcp.pipedream.net/{external_user_id}/{app}` |
+| Streamable HTTP | `https://remote.mcp.pipedream.net/v1/{external_user_id}/{app}` |
+
+### Path parameters
+
+**`external_user_id`** — Your end user's ID in your system. Pipedream uses this to look up the connected account for that user. Any requests to a route with a given `external_user_id` use the credentials Pipedream has stored for that user.
+
+**`app`** — The app's [name slug](https://pipedream.com/apps) — the unique identifier for the app (e.g. `slack`, `github`, `google_sheets`). All tools available for that app will be exposed at that endpoint.
+
+### Example
+
+For your user with ID `user-123` to use Slack tools:
+
+```
+https://remote.mcp.pipedream.net/user-123/slack
+```
+
+The AI agent connects to this URL and receives all Pipedream Slack tools (send message, list channels, etc.) ready to call — using the Slack account `user-123` connected via Pipedream Connect.
+
+## Server modes
+
+### App-specific mode
+
+```
+/{external_user_id}/{app}
+```
+
+All MCP tools for a single app are available at this endpoint. The AI agent connects once per app.
+
+### Dynamic mode (experimental)
+
+```
+/{external_user_id}
+```
+
+Exposes tools that update dynamically as the user connects more apps. Used to power [chat.pipedream.com](https://chat.pipedream.com). Best suited for AI assistants that need access to multiple apps simultaneously.
+
+<Note>
+Dynamic mode relies on dynamic tool updates, which not all MCP clients support. Check your MCP client's documentation before using it.
+</Note>
+
+## Authentication
+
+The remote MCP server uses Pipedream Connect for authentication:
+
+1. Your server creates a Connect token for the external user using the server SDK.
+2. The token (or `external_user_id`) is embedded in the MCP server URL.
+3. Pipedream looks up the stored credentials for that user and injects them into tool calls automatically.
+
+See [MCP for developers](/connect/mcp/developers) for the full implementation guide.
+
+## Self-hosting
+
+Pipedream publishes a reference MCP server implementation you can run yourself:
+
+```bash
+npx @pipedream/mcp
+```
+
+This is intended for local development, testing, or running within a controlled environment. For production, use the hosted remote server.
+
+<Warning>
+The `@pipedream/mcp` package is a reference implementation only and is not actively maintained. For production workloads, use the hosted remote MCP server.
+</Warning>
+
+## Why use Pipedream MCP?
+
+- **No OAuth plumbing** — Pipedream handles OAuth flows, token storage, and refresh for 2,800+ apps.
+- **Instant coverage** — 10,000+ pre-built tools across the entire Pipedream component registry.
+- **Per-user auth** — Each user's credentials are isolated. The `external_user_id` in the URL ensures the AI acts on behalf of the right person.
+- **Multiple tool modes** — Sub-agent and full configuration modes for different use cases.
+- **Enterprise reliability** — Built on the same infrastructure powering millions of Pipedream workflows.

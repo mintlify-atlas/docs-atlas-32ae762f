@@ -1,0 +1,104 @@
+---
+title: "Integrations overview"
+description: "Browse Pipedream's 2,800+ pre-built integrations and learn how to connect apps in your workflows."
+---
+
+Pipedream provides over **2,800 pre-built integrations** — ready-to-use triggers and actions for popular APIs. Connect apps in minutes without writing auth code.
+
+## Popular integrations
+
+<Columns cols={3}>
+  <Card title="GitHub" icon="github" href="https://pipedream.com/apps/github">
+    Trigger on issues, PRs, pushes, and more.
+  </Card>
+  <Card title="Slack" icon="slack" href="https://pipedream.com/apps/slack">
+    Send messages, create channels, and respond to events.
+  </Card>
+  <Card title="Google Sheets" icon="table" href="https://pipedream.com/apps/google-sheets">
+    Add rows, read data, and watch for changes.
+  </Card>
+  <Card title="Stripe" icon="credit-card" href="https://pipedream.com/apps/stripe">
+    Handle payments, subscriptions, and webhooks.
+  </Card>
+  <Card title="Notion" icon="book" href="https://pipedream.com/apps/notion">
+    Create and update pages, query databases.
+  </Card>
+  <Card title="Airtable" icon="database" href="https://pipedream.com/apps/airtable">
+    Read and write records, trigger on base changes.
+  </Card>
+  <Card title="HubSpot" icon="h" href="https://pipedream.com/apps/hubspot">
+    Sync contacts, deals, and pipeline events.
+  </Card>
+  <Card title="Shopify" icon="shopping-cart" href="https://pipedream.com/apps/shopify">
+    React to orders, products, and customer events.
+  </Card>
+  <Card title="Salesforce" icon="cloud" href="https://pipedream.com/apps/salesforce">
+    Automate CRM updates and notifications.
+  </Card>
+</Columns>
+
+Other notable integrations: Jira, Zendesk, Twilio, SendGrid, AWS, Google Drive, Discord, Twitter/X, Linear, Asana, and thousands more.
+
+Browse the full catalog at [https://pipedream.com/apps](https://pipedream.com/apps).
+
+## How integrations work
+
+Each integration is a **component** — a versioned, open-source module that wraps an API. Components come in two types:
+
+- **Sources** — trigger a workflow when something happens (e.g., a new GitHub issue is opened)
+- **Actions** — perform an operation as a workflow step (e.g., send a Slack message)
+
+All component source code lives in the [PipedreamHQ/pipedream](https://github.com/PipedreamHQ/pipedream) repository under `components/`.
+
+## Connecting an app
+
+<Steps>
+  <Step title="Add a trigger or action to your workflow">
+    In the workflow editor, click **+** to add a new step and search for the app you want to connect.
+  </Step>
+  <Step title="Connect your account">
+    Click **Connect account**. Pipedream opens an OAuth flow or prompts you for an API key, depending on how the app authenticates.
+  </Step>
+  <Step title="Authorize access">
+    Grant the required permissions. Pipedream stores the credentials encrypted — you never handle tokens directly.
+  </Step>
+  <Step title="Configure the step">
+    Fill in the step's props — repo name, channel ID, table ID, etc. — and save.
+  </Step>
+</Steps>
+
+## Using connected accounts in custom code
+
+Use `this.app.$auth` to access a connected account's credentials inside a code step:
+
+```javascript
+export default defineComponent({
+  props: {
+    github: {
+      type: "app",
+      app: "github",
+    },
+  },
+  async run({ steps, $ }) {
+    const response = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${this.github.$auth.oauth_access_token}`,
+        "User-Agent": "pipedream/1.0",
+      },
+    });
+    return response.json();
+  },
+});
+```
+
+<Tip>
+You can connect the same app multiple times with different accounts. When adding a step, choose which connected account to use from the account selector.
+</Tip>
+
+## Missing an integration?
+
+If the app you need isn't in the catalog:
+
+- **Request it** — [Open a GitHub issue](https://github.com/PipedreamHQ/pipedream/issues/new?assignees=&labels=app%2C+enhancement&template=app---service-integration.md&title=[APP]) to request an app.
+- **Build it** — Contribute your own component. See [Contributing integrations](/integrations/contributing).
+- **Use HTTP or custom code** — Any app with a REST API can be called from a code step using `fetch` or `axios`.

@@ -1,0 +1,143 @@
+---
+title: "Workflows"
+description: "Workflows are sequences of steps triggered by events. They are the core building block of automation on Pipedream."
+---
+
+A workflow is a sequence of steps that runs automatically when an event occurs. Each workflow has exactly one trigger — the event that starts execution — and one or more steps that run in order after the trigger fires.
+
+## How a workflow runs
+
+When an event arrives (an HTTP request, a new GitHub issue, a scheduled timer, etc.), Pipedream:
+
+1. Passes the event to the trigger step, which parses and normalizes the incoming data
+2. Executes each subsequent step in order, passing the output of each step to the next
+3. Exports a return value from each step, available to all downstream steps
+4. Records the full execution — inputs, outputs, logs, errors — in the **Inspector**
+
+Workflows execute in a fully managed, serverless environment. You do not provision infrastructure or manage scaling.
+
+## Steps
+
+Every item in a workflow is a step. Steps come in three varieties:
+
+<CardGroup cols={3}>
+  <Card title="Trigger" icon="bolt">
+    The first step in every workflow. Defines the event that starts execution — an HTTP request, a schedule, an app event, or an email.
+  </Card>
+  <Card title="Action" icon="puzzle-piece">
+    Pre-built code steps for common operations. Send a Slack message, insert a row in Google Sheets, create a GitHub issue, and more.
+  </Card>
+  <Card title="Custom code" icon="code">
+    Write Node.js, Python, Go, or Bash. Import any package. Connect to any Pipedream-integrated app.
+  </Card>
+</CardGroup>
+
+### Passing data between steps
+
+Every step exports a return value. You reference it in downstream steps using the `steps` object:
+
+```javascript
+// In any step after "my_step"
+const result = steps.my_step.$return_value;
+```
+
+The trigger event is always available at `steps.trigger.event`:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Access the full trigger event
+    const { body, headers, method } = steps.trigger.event;
+    console.log("HTTP method:", method);
+    return body;
+  },
+});
+```
+
+In the workflow UI, you can reference step exports using double-brace syntax in text fields:
+
+```
+{{steps.trigger.event.body.user.email}}
+```
+
+## Trigger types
+
+Every workflow starts with a trigger. Choose the one that matches your use case:
+
+| Trigger | Description |
+|---|---|
+| **HTTP / Webhook** | Runs when an HTTP request is sent to a unique endpoint URL |
+| **Schedule** | Runs on a cron schedule (e.g., every 15 minutes, daily at 9am) |
+| **App event** | Runs when something happens in a connected app (new GitHub PR, Slack message, Airtable record, etc.) |
+| **Email** | Runs when an email is sent to a unique Pipedream address |
+
+## Workflow state and context
+
+### Step exports
+
+Each step's return value is automatically exported. In Node.js:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // This return value is exported as steps.<step_name>.$return_value
+    return {
+      userId: 42,
+      email: "user@example.com",
+    };
+  },
+});
+```
+
+### `$` utilities
+
+The `$` object inside a step provides Pipedream utilities:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Terminate the workflow with a custom HTTP response
+    await $.respond({
+      status: 200,
+      body: { message: "ok" },
+    });
+
+    // Export a named value from this step
+    $.export("myKey", "myValue");
+  },
+});
+```
+
+## Error handling
+
+If a step throws an error, the workflow stops and the error is recorded in the Inspector. You can configure per-step retry behavior and set up error workflows that run when a failure occurs.
+
+<Warning>
+  If a step throws an unhandled exception, all downstream steps are skipped. Wrap critical logic in try/catch blocks or use Pipedream's built-in retry controls.
+</Warning>
+
+## Concurrency and throttling
+
+By default, Pipedream runs each workflow event in parallel. You can configure a workflow to process events serially (one at a time) or set a maximum concurrency to limit parallel executions — useful when downstream APIs have rate limits.
+
+## Inspecting executions
+
+Every workflow execution is logged in the **Inspector**. For each event you can see:
+
+- The full trigger event payload
+- Each step's input, output (return value), and console logs
+- Execution duration and any errors
+- Whether downstream steps were skipped due to a failure
+
+This makes debugging integrations straightforward: you can inspect exactly what data entered each step and what it returned.
+
+## Related concepts
+
+<CardGroup cols={2}>
+  <Card title="Event sources" icon="bolt" href="/concepts/event-sources">
+    How Pipedream watches for new events from third-party apps and emits them to trigger workflows.
+  </Card>
+  <Card title="Custom code" icon="code" href="/concepts/custom-code">
+    Write Node.js, Python, Go, or Bash steps — with full package import support.
+  </Card>
+</CardGroup>

@@ -1,0 +1,269 @@
+---
+title: "Event sources"
+description: "Create, manage, and retrieve events from event sources using the Pipedream REST API. Stream live events over SSE."
+---
+
+Event sources watch for new data from apps like GitHub, Slack, and RSS. When a source detects a new event, it emits it — triggering linked workflows or making it available via the REST API and SSE.
+
+## Endpoints
+
+### List sources
+
+`GET /v1/sources`
+
+Returns all event sources in your account.
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="10">
+  Maximum number of sources to return. Maximum value: `100`.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  Pagination cursor from a previous response's `page_info.end_cursor`.
+</ParamField>
+
+```bash
+curl https://api.pipedream.com/v1/sources \
+  -H "Authorization: Bearer {api_key}"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "dc_abc123",
+      "component_id": "sc_abc123",
+      "active": true,
+      "created_at": 1710000000,
+      "updated_at": 1710100000,
+      "name": "New GitHub Issues",
+      "name_slug": "new-github-issues"
+    }
+  ],
+  "page_info": {
+    "total_count": 5,
+    "count": 5,
+    "start_cursor": "c2RmZmFzZGY",
+    "end_cursor": "Y3VycmVudA",
+    "has_more": false
+  }
+}
+```
+
+---
+
+### Get source
+
+`GET /v1/sources/{id}`
+
+Returns a single event source.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The source ID, e.g. `dc_abc123`.
+</ParamField>
+
+```bash
+curl https://api.pipedream.com/v1/sources/dc_abc123 \
+  -H "Authorization: Bearer {api_key}"
+```
+
+---
+
+### Create source
+
+`POST /v1/sources`
+
+Creates a new event source from a component.
+
+#### Request body
+
+<ParamField body="component_id" type="string">
+  The ID of a pre-built Pipedream component, e.g. `github-new-issue`.
+</ParamField>
+
+<ParamField body="component_code" type="string">
+  Raw component code as a string. Use this to deploy a custom source.
+</ParamField>
+
+<ParamField body="name" type="string">
+  Display name for the source.
+</ParamField>
+
+<ParamField body="props" type="object">
+  Component prop values, e.g. `{ "githubRepoFullName": "owner/repo" }`.
+</ParamField>
+
+```bash
+curl -X POST https://api.pipedream.com/v1/sources \
+  -H "Authorization: Bearer {api_key}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "component_id": "github-new-issue",
+    "name": "New issues in my-org/my-repo",
+    "props": {
+      "githubRepoFullName": "my-org/my-repo"
+    }
+  }'
+```
+
+```json
+{
+  "data": {
+    "id": "dc_xyz789",
+    "component_id": "github-new-issue",
+    "active": true,
+    "name": "New issues in my-org/my-repo",
+    "created_at": 1710200000,
+    "updated_at": 1710200000
+  }
+}
+```
+
+---
+
+### Update source
+
+`PUT /v1/sources/{id}`
+
+Updates an existing event source's props or active state.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The source ID.
+</ParamField>
+
+#### Request body
+
+<ParamField body="active" type="boolean">
+  Set to `false` to pause the source, `true` to resume it.
+</ParamField>
+
+<ParamField body="props" type="object">
+  Updated prop values.
+</ParamField>
+
+```bash
+curl -X PUT https://api.pipedream.com/v1/sources/dc_abc123 \
+  -H "Authorization: Bearer {api_key}" \
+  -H "Content-Type: application/json" \
+  -d '{"active": false}'
+```
+
+---
+
+### Delete source
+
+`DELETE /v1/sources/{id}`
+
+Permanently deletes an event source and all its associated events.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The source ID.
+</ParamField>
+
+```bash
+curl -X DELETE https://api.pipedream.com/v1/sources/dc_abc123 \
+  -H "Authorization: Bearer {api_key}"
+```
+
+---
+
+## Events
+
+### List events
+
+`GET /v1/sources/{id}/events`
+
+Returns events emitted by a source. Events are retained for 30 days on the free tier.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  The source ID.
+</ParamField>
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="10">
+  Number of events to return. Maximum: `100`.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  Pagination cursor.
+</ParamField>
+
+```bash
+curl "https://api.pipedream.com/v1/sources/dc_abc123/events?limit=5" \
+  -H "Authorization: Bearer {api_key}"
+```
+
+---
+
+### Delete events
+
+`DELETE /v1/sources/{id}/events`
+
+Deletes all events from a source.
+
+```bash
+curl -X DELETE https://api.pipedream.com/v1/sources/dc_abc123/events \
+  -H "Authorization: Bearer {api_key}"
+```
+
+---
+
+### List subscriptions
+
+`GET /v1/sources/{id}/subscriptions`
+
+Returns all workflows subscribed to this source.
+
+```bash
+curl https://api.pipedream.com/v1/sources/dc_abc123/subscriptions \
+  -H "Authorization: Bearer {api_key}"
+```
+
+---
+
+## SSE streaming
+
+Consume events in real time using Server-Sent Events (SSE). The SSE endpoint does not require a version prefix:
+
+```
+GET https://api.pipedream.com/sources/{source_id}/sse
+```
+
+Each emitted event appears as an SSE message:
+
+<CodeGroup>
+
+```bash curl
+curl -N https://api.pipedream.com/sources/dc_abc123/sse \
+  -H "Authorization: Bearer {api_key}"
+```
+
+```javascript Node.js
+import { EventSource } from "eventsource";
+
+const es = new EventSource(
+  "https://api.pipedream.com/sources/dc_abc123/sse",
+  { headers: { Authorization: `Bearer ${process.env.PD_API_KEY}` } }
+);
+
+es.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log("New event:", data);
+};
+```
+
+</CodeGroup>
+
+<Note>
+The SSE connection is long-lived. Reconnect with an exponential backoff if the stream disconnects.
+</Note>

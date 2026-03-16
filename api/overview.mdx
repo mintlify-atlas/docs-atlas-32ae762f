@@ -1,0 +1,105 @@
+---
+title: "REST API overview"
+description: "Interact with Pipedream programmatically using the REST API. Manage workflows, event sources, connected accounts, and stream real-time events."
+---
+
+The Pipedream REST API lets you manage every part of the platform programmatically: create and update event sources, list workflows, manage connected accounts via Connect, and stream live events over SSE.
+
+## Base URL
+
+All API requests use the following base URL:
+
+```
+https://api.pipedream.com/v1
+```
+
+## Authentication
+
+All requests require an `Authorization` header with a Bearer token. See [Authentication](/api/auth) for details on API keys and OAuth credentials.
+
+```bash
+curl https://api.pipedream.com/v1/sources \
+  -H "Authorization: Bearer {api_key}"
+```
+
+## Response format
+
+All responses return JSON. Successful responses wrap the payload in a `data` field:
+
+```json
+{
+  "data": { ... }
+}
+```
+
+Paginated list responses include a `page_info` object:
+
+```json
+{
+  "data": [...],
+  "page_info": {
+    "total_count": 100,
+    "count": 20,
+    "start_cursor": "c2RmZmFzZGY",
+    "end_cursor": "Y3VycmVudA",
+    "has_more": true
+  }
+}
+```
+
+## Error format
+
+Errors return a JSON body with `error` and `code` fields:
+
+```json
+{
+  "error": "Not Found",
+  "code": 404
+}
+```
+
+### HTTP status codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | OK — request succeeded |
+| `201` | Created — resource created |
+| `400` | Bad Request — invalid parameters |
+| `401` | Unauthorized — missing or invalid API key |
+| `403` | Forbidden — insufficient permissions |
+| `404` | Not Found — resource does not exist |
+| `429` | Too Many Requests — rate limit exceeded |
+| `500` | Internal Server Error |
+
+## Rate limiting
+
+The default rate limit is **100 requests per 10 seconds** per API key. Rate limit status is returned in response headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed in the window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Unix timestamp when the window resets |
+
+When the limit is exceeded, the API returns `429 Too Many Requests`. Implement exponential backoff to handle this gracefully.
+
+<Warning>
+Do not share your API key publicly or commit it to source control. Rotate it immediately at [https://pipedream.com/settings/account](https://pipedream.com/settings/account) if it is exposed.
+</Warning>
+
+## Available resources
+
+<Columns cols={2}>
+  <Card title="Authentication" icon="key" href="/api/auth">
+    API keys and OAuth credentials for the Connect API.
+  </Card>
+  <Card title="Workflows" icon="diagram-project" href="/api/workflows">
+    List and retrieve workflows, trigger via HTTP.
+  </Card>
+  <Card title="Event sources" icon="bolt" href="/api/sources">
+    Create, update, and delete event sources. Stream events over SSE.
+  </Card>
+  <Card title="Accounts" icon="plug" href="/api/accounts">
+    Manage connected accounts and external users via the Connect API.
+  </Card>
+</Columns>

@@ -1,0 +1,216 @@
+---
+title: "Python"
+description: "Run Python 3.12 in any workflow step. Install packages from PyPI with a standard import statement, access prior step data, and connect to 2,800+ app integrations."
+keywords: ["Python", "PyPI", "pandas", "requests", "custom code"]
+---
+
+Python steps use a `handler` function as the entry point. The `pd` argument gives you access to prior step data and Pipedream-specific helpers.
+
+## Basic structure
+
+```python
+def handler(pd: "pipedream"):
+    # pd.steps — data from all prior steps
+    # pd.inputs — props defined on the step
+    return "hello from Python"
+```
+
+## Installing packages
+
+Import any PyPI package directly. Pipedream installs it automatically.
+
+```python
+import requests
+import pandas as pd_lib
+import boto3
+from bs4 import BeautifulSoup
+
+def handler(pd: "pipedream"):
+    r = requests.get("https://data.cityofnewyork.us/api/views/jb7j-dtam/rows.csv")
+    r.raise_for_status()
+
+    from io import StringIO
+    df = pd_lib.read_csv(StringIO(r.text))
+
+    return {
+        "rows":    len(df),
+        "columns": list(df.columns),
+        "sample":  df.head(5).to_dict(orient="records"),
+    }
+```
+
+<Note>
+  Pipedream runs Python 3.12. Both `import` and `from ... import` syntax work. Name your standard `pandas` import something other than `pd` to avoid shadowing the `pd` argument.
+</Note>
+
+## Accessing prior step data
+
+```python
+def handler(pd: "pipedream"):
+    # Trigger event data
+    body    = pd.steps["trigger"]["event"]["body"]
+    headers = pd.steps["trigger"]["event"]["headers"]
+
+    # Return value from a step named "fetch_user"
+    user = pd.steps["fetch_user"]["$return_value"]
+
+    # Named export from a step named "enrich"
+    score = pd.steps["enrich"]["risk_score"]
+
+    return {
+        "user_id": user["id"],
+        "score":   score,
+        "path":    body.get("path"),
+    }
+```
+
+## Connected apps
+
+Declare app props and access OAuth tokens or API keys at runtime.
+
+```python
+import requests
+
+def handler(pd: "pipedream"):
+    # pd.inputs.github.$auth.oauth_access_token
+    token = pd.inputs["github"]["$auth"]["oauth_access_token"]
+
+    event = pd.steps["trigger"]["event"]
+    owner, repo = event["repository"]["full_name"].split("/")
+    pr_number   = event["number"]
+
+    # Fetch PR details
+    pr = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    ).json()
+
+    # Fetch changed files
+    files = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    ).json()
+
+    return {
+        "title":         pr["title"],
+        "additions":     pr["additions"],
+        "deletions":     pr["deletions"],
+        "changed_files": [f["filename"] for f in files],
+    }
+```
+
+## Environment variables
+
+```python
+import os
+import requests
+
+def handler(pd: "pipedream"):
+    api_key = os.environ["MY_SERVICE_API_KEY"]
+    region  = os.environ.get("AWS_REGION", "us-east-1")
+
+    r = requests.get(
+        "https://api.example.com/data",
+        headers={"Authorization": f"Bearer {api_key}"},
+        params={"region": region},
+    )
+    r.raise_for_status()
+    return r.json()
+```
+
+## Data transformation with pandas
+
+```python
+import pandas as pd_lib
+import requests
+
+def handler(pd: "pipedream"):
+    # Fetch raw data from prior step
+    rows = pd.steps["fetch_records"]["$return_value"]["rows"]
+
+    df = pd_lib.DataFrame(rows)
+
+    # Normalize and clean
+    df["created_at"] = pd_lib.to_datetime(df["created_at"])
+    df["amount"]     = pd_lib.to_numeric(df["amount"], errors="coerce")
+    df = df.dropna(subset=["amount"])
+
+    summary = (
+        df.groupby("category")["amount"]
+          .agg(["sum", "mean", "count"])
+          .rename(columns={"sum": "total", "mean": "average", "count": "transactions"})
+          .reset_index()
+          .to_dict(orient="records")
+    )
+
+    return {
+        "total_rows":     len(df),
+        "category_summary": summary,
+        "date_range": {
+            "from": df["created_at"].min().isoformat(),
+            "to":   df["created_at"].max().isoformat(),
+        },
+    }
+```
+
+## Calling external APIs with error handling
+
+```python
+import requests
+from requests.exceptions import HTTPError, Timeout
+
+def handler(pd: "pipedream"):
+    user_id  = pd.steps["trigger"]["event"]["body"]["userId"]
+    api_key  = os.environ["CRM_API_KEY"]
+
+    try:
+        r = requests.get(
+            f"https://api.crm.example.com/contacts/{user_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except HTTPError as e:
+        if e.response.status_code == 404:
+            return {"found": False, "userId": user_id}
+        raise
+    except Timeout:
+        raise RuntimeError(f"CRM API timed out for userId {user_id}")
+
+    contact = r.json()
+    return {
+        "found":   True,
+        "id":      contact["id"],
+        "email":   contact["email"],
+        "plan":    contact.get("plan", "free"),
+    }
+```
+
+## Returning data
+
+Anything returned from `handler` is exported as `$return_value` and accessible in downstream steps:
+
+```python
+# This step is named "summarize"
+def handler(pd: "pipedream"):
+    return {"total": 42, "status": "ok"}
+```
+
+In a later Node.js step:
+
+```javascript
+const { total, status } = steps.summarize.$return_value;
+```
+
+In a later Python step:
+
+```python
+result = pd.steps["summarize"]["$return_value"]
+total  = result["total"]
+```

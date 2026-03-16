@@ -1,0 +1,536 @@
+---
+title: "Component API reference"
+description: "Full reference for the Pipedream component API — metadata fields, prop types, lifecycle methods, and the $emit interface."
+---
+
+A Pipedream component is a JavaScript ES module with a default export that conforms to the component interface described here. Components can be sources (which emit events) or actions (which run as workflow steps).
+
+## Component structure
+
+```javascript
+export default {
+  // ── Metadata ──────────────────────────────────────
+  name: "Human-readable name",
+  key: "app-verb-noun",             // unique slug
+  description: "What this component does.",
+  version: "0.0.1",
+  type: "source",                   // or "action"
+
+  // ── Deduplication (sources only) ──────────────────
+  dedupe: "unique",
+
+  // ── Props ─────────────────────────────────────────
+  props: {
+    myProp: {
+      type: "string",
+      label: "My prop",
+      description: "Describe what this prop does.",
+    },
+  },
+
+  // ── Methods ───────────────────────────────────────
+  methods: {
+    helper() {
+      return "reusable logic here";
+    },
+  },
+
+  // ── Hooks (sources only) ──────────────────────────
+  hooks: {
+    async activate() {
+      // runs once when source is deployed
+    },
+    async deactivate() {
+      // runs once when source is deleted
+    },
+  },
+
+  // ── Run ───────────────────────────────────────────
+  async run({ $ }) {
+    // main component logic
+  },
+};
+```
+
+---
+
+## Metadata fields
+
+<ParamField path="name" type="string" required>
+  Human-readable display name shown in the Pipedream UI. Use title case.
+
+  ```javascript
+  name: "New Commit"
+  ```
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  Globally unique slug for this component. Follow the `{app}-{verb}-{noun}` naming convention. Once published, the key cannot change.
+
+  ```javascript
+  key: "github-new-commit"
+  ```
+</ParamField>
+
+<ParamField path="description" type="string">
+  Short description of what the component does. Shown in the component picker and search results. Markdown is supported.
+
+  ```javascript
+  description: "Emit new event when commits are pushed to a branch."
+  ```
+</ParamField>
+
+<ParamField path="version" type="string" required>
+  Semver version string. Increment this any time you change the component's behavior or interface.
+
+  ```javascript
+  version: "0.1.3"
+  ```
+</ParamField>
+
+<ParamField path="type" type="string" required>
+  Either `"source"` or `"action"`. Sources emit events; actions run as workflow steps and return a value.
+
+  ```javascript
+  type: "source"
+  ```
+</ParamField>
+
+<ParamField path="dedupe" type="string">
+  Deduplication strategy for sources. Not applicable to actions.
+
+  | Value | Behaviour |
+  |---|---|
+  | `"unique"` | Drop any event whose `id` was already emitted by this source. |
+  | `"last"` | Drop the event if its `id` equals the most recently emitted `id`. |
+  | `"greatest"` | Drop the event if its `id` is numerically less than or equal to the highest emitted `id`. |
+
+  ```javascript
+  dedupe: "unique"
+  ```
+</ParamField>
+
+---
+
+## Props
+
+Props are the configurable inputs for a component. They are declared as a `props` object whose keys become `this.*` properties in `run()`. Pipedream renders each prop as a form field in the UI.
+
+### Primitive prop types
+
+<ParamField path="props.{key}.type" type="string" required>
+  The data type for this prop. Determines the input widget shown in the UI.
+
+  | Type | UI widget | Description |
+  |---|---|---|
+  | `string` | Text input | Single-line string value. |
+  | `integer` | Number input | Integer value. |
+  | `boolean` | Toggle | `true` or `false`. |
+  | `string[]` | Multi-select | Array of strings. |
+  | `object` | JSON editor | Arbitrary JSON object. |
+  | `any` | Text input | Accepts any type without validation. |
+</ParamField>
+
+<ParamField path="props.{key}.label" type="string">
+  Human-readable label for the prop input field.
+</ParamField>
+
+<ParamField path="props.{key}.description" type="string">
+  Longer description shown below the input field. Markdown supported.
+</ParamField>
+
+<ParamField path="props.{key}.optional" type="boolean" default="false">
+  When `true`, the prop is not required and defaults to `undefined` if not provided.
+</ParamField>
+
+<ParamField path="props.{key}.default" type="any">
+  Default value for the prop. Must match the declared `type`.
+
+  ```javascript
+  limit: {
+    type: "integer",
+    label: "Max results",
+    default: 25,
+  },
+  ```
+</ParamField>
+
+<ParamField path="props.{key}.options" type="string[] | object[]">
+  Restricts the prop to a fixed set of values, rendered as a dropdown. Accepts an array of strings or `{ label, value }` objects.
+
+  ```javascript
+  status: {
+    type: "string",
+    label: "Status",
+    options: [
+      { label: "Open", value: "open" },
+      { label: "Closed", value: "closed" },
+    ],
+  },
+  ```
+</ParamField>
+
+<ParamField path="props.{key}.secret" type="boolean">
+  When `true`, the value is masked in the UI and never exposed in logs. Use for API keys and tokens.
+</ParamField>
+
+### Interface props
+
+Interface props hook the component into Pipedream's trigger infrastructure.
+
+<ParamField path="props.http" type="string">
+  Set to the string literal `"$.interface.http"` to expose an HTTP endpoint. Pipedream generates a unique URL for the source; every inbound request triggers `run(event)`.
+
+  ```javascript
+  props: {
+    http: "$.interface.http",
+  },
+  ```
+</ParamField>
+
+<ParamField path="props.timer" type="object">
+  Set `type` to `"$.interface.timer"` to run the source on a schedule. Configure the default interval or cron expression in `default`.
+
+  ```javascript
+  props: {
+    timer: {
+      type: "$.interface.timer",
+      default: {
+        intervalSeconds: 900,
+        // OR: cron: "0 * * * *",
+      },
+    },
+  },
+  ```
+</ParamField>
+
+### App prop
+
+<ParamField path="props.{key}.type" type="string">
+  Set to `"app"` to add a connected account selector. Pipedream handles OAuth and API key storage.
+
+  ```javascript
+  props: {
+    github: {
+      type: "app",
+      app: "github",   // must match the Pipedream app slug
+    },
+  },
+  ```
+
+  Inside `run()`, access the auth credentials via `this.github.$auth`:
+
+  ```javascript
+  async run({ $ }) {
+    const token = this.github.$auth.oauth_access_token;
+    // or for API-key apps:
+    const key = this.myapp.$auth.api_key;
+  },
+  ```
+</ParamField>
+
+### Data store prop
+
+<ParamField path="props.{key}.type" type="string">
+  Set to `"data_store"` to provision a key-value store scoped to this component instance. Data persists across invocations.
+
+  ```javascript
+  props: {
+    db: {
+      type: "data_store",
+    },
+  },
+  ```
+
+  ```javascript
+  async run({ $ }) {
+    const lastId = await this.db.get("lastId");
+    // ... fetch new items ...
+    await this.db.set("lastId", latestId);
+  },
+  ```
+</ParamField>
+
+---
+
+## Lifecycle methods
+
+### `run({ $ })`
+
+The main entry point. Called every time the source receives an event (HTTP request or timer tick) or every time an action's step is executed in a workflow.
+
+```javascript
+async run({ $ }) {
+  // $ is the step context — use it for http, export, emit, etc.
+},
+```
+
+The `$` argument is the step execution context. Key members:
+
+| Member | Description |
+|---|---|
+| `$.http` | Axios-compatible HTTP client. Requests are logged and visible in the workflow inspector. |
+| `$.export(key, value)` | Export a named value from the step, available as `steps.{stepName}.{key}` in downstream steps. |
+| `$.respond(response)` | (HTTP sources only) Send an HTTP response back to the caller. |
+
+### `hooks.activate()`
+
+Called once when the source is first deployed. Use it to register webhooks, record initial state, or perform any one-time setup.
+
+```javascript
+hooks: {
+  async activate() {
+    // Register a webhook with the external service
+    const webhook = await this.github.createWebhook({
+      repoFullname: this.repoFullname,
+      events: ["push"],
+      url: this.http.endpoint,
+    });
+    this.db.set("webhookId", webhook.id);
+  },
+},
+```
+
+### `hooks.deactivate()`
+
+Called once when the source is deleted or paused. Use it to remove webhooks and clean up any external resources.
+
+```javascript
+hooks: {
+  async deactivate() {
+    const webhookId = this.db.get("webhookId");
+    await this.github.deleteWebhook({
+      repoFullname: this.repoFullname,
+      webhookId,
+    });
+  },
+},
+```
+
+---
+
+## `this.$emit(event, metadata)`
+
+Publishes a new event from a source. Calling `this.$emit()` from an action has no effect.
+
+```javascript
+this.$emit(event, {
+  id: "unique-id",
+  summary: "Human-readable description",
+  ts: Date.now(),
+});
+```
+
+### Arguments
+
+<ParamField path="event" type="object" required>
+  Any JSON-serializable value. This becomes `steps.trigger.event` in linked workflows.
+</ParamField>
+
+<ParamField path="metadata.id" type="string" required>
+  Deduplication key. If `dedupe` is set on the component, Pipedream uses this value to determine whether to drop the event. Should be stable and unique — a record ID, GUID, or content hash.
+
+  ```javascript
+  id: item.guid
+  id: `${commit.sha}-${Date.now()}`
+  ```
+</ParamField>
+
+<ParamField path="metadata.summary" type="string">
+  Human-readable label for the event. Shown in the source's event log in the UI.
+
+  ```javascript
+  summary: `New commit: ${commit.message}`
+  summary: `Message from @${message.user}`
+  ```
+</ParamField>
+
+<ParamField path="metadata.ts" type="number">
+  Event timestamp in milliseconds since Unix epoch. Used for ordering events in the UI.
+
+  ```javascript
+  ts: Date.parse(item.created_at)
+  ts: Date.now()
+  ```
+</ParamField>
+
+---
+
+## `$.export(key, value)`
+
+Exports a named value from an action step. The exported value is available as `steps.{stepName}.{key}` in all downstream steps of the workflow.
+
+The special key `$summary` sets the step summary text shown in the workflow builder:
+
+```javascript
+$.export("$summary", `Sent message to ${this.channel}`);
+$.export("messageTs", response.data.ts);
+// → steps.my_step.$summary, steps.my_step.messageTs
+```
+
+---
+
+## Component methods
+
+Define reusable logic in the `methods` object. Methods are accessible via `this` inside `run()` and other methods.
+
+```javascript
+export default {
+  methods: {
+    buildApiUrl(path) {
+      return `https://api.example.com/v2${path}`;
+    },
+    async fetchPage(cursor) {
+      return this.client.get(this.buildApiUrl("/items"), {
+        params: { cursor, limit: 100 },
+      });
+    },
+  },
+  async run({ $ }) {
+    const data = await this.fetchPage(null);
+    // ...
+  },
+};
+```
+
+---
+
+## Prop definitions
+
+For reusable prop definitions across components (common in app files), use `propDefinitions` on the app export and reference them with the three-element array syntax:
+
+```javascript
+// github.app.mjs
+export default {
+  type: "app",
+  app: "github",
+  propDefinitions: {
+    repoFullname: {
+      type: "string",
+      label: "Repository",
+      async options() {
+        const repos = await this.getRepos();
+        return repos.map((r) => r.full_name);
+      },
+    },
+  },
+};
+
+// In a component:
+props: {
+  repoFullname: {
+    propDefinition: [github, "repoFullname"],
+  },
+},
+```
+
+The three-element form passes a context function that receives the current component (`c`) and maps it to additional arguments for `options()`:
+
+```javascript
+props: {
+  branch: {
+    propDefinition: [
+      common.props.github,
+      "branch",
+      (c) => ({ repoFullname: c.repoFullname }),
+    ],
+  },
+},
+```
+
+---
+
+## Full source example
+
+The Slack `new-message-in-channel` source, simplified:
+
+```javascript
+export default {
+  key: "slack_bot-new-message-in-channel",
+  name: "New Message In Channel",
+  version: "0.0.6",
+  description: "Emit new event when a new message is posted to a channel (Bot)",
+  type: "source",
+  dedupe: "unique",
+  props: {
+    app: {
+      type: "app",
+      app: "slack_bot",
+    },
+    timer: {
+      type: "$.interface.timer",
+      default: { intervalSeconds: 60 },
+    },
+    channelId: {
+      type: "string",
+      label: "Channel",
+      async options() {
+        const channels = await this.app.listChannels();
+        return channels.map((c) => ({
+          label: c.name,
+          value: c.id,
+        }));
+      },
+    },
+  },
+  async run({ $ }) {
+    const messages = await this.app.conversationsHistory({
+      channel: this.channelId,
+      oldest: this.db.get("lastTimestamp") ?? 0,
+    });
+
+    for (const msg of messages) {
+      this.$emit(msg, {
+        id: msg.ts,
+        summary: `New message at ${msg.ts}`,
+        ts: Number(msg.ts) * 1000,
+      });
+    }
+
+    if (messages.length) {
+      this.db.set("lastTimestamp", messages[0].ts);
+    }
+  },
+};
+```
+
+## Full action example
+
+```javascript
+export default {
+  name: "Send Slack Message",
+  key: "slack-send-message",
+  description: "Post a message to a Slack channel.",
+  version: "0.0.1",
+  type: "action",
+  props: {
+    slack: {
+      type: "app",
+      app: "slack",
+    },
+    channel: {
+      type: "string",
+      label: "Channel",
+      description: "Channel ID or name, e.g. `#general`.",
+    },
+    text: {
+      type: "string",
+      label: "Message text",
+    },
+  },
+  async run({ $ }) {
+    const response = await $.http.post(
+      "https://slack.com/api/chat.postMessage",
+      { channel: this.channel, text: this.text },
+      { headers: { Authorization: `Bearer ${this.slack.$auth.oauth_access_token}` } }
+    );
+
+    if (!response.data.ok) {
+      throw new Error(`Slack API error: ${response.data.error}`);
+    }
+
+    $.export("$summary", `Message sent to ${this.channel}`);
+    return response.data;
+  },
+};
+```

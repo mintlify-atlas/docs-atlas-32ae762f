@@ -1,0 +1,89 @@
+---
+title: "Security and privacy"
+description: "How Pipedream protects your data, manages credentials, and maintains compliance."
+---
+
+Pipedream is built for developers handling production workloads. This page covers how the platform protects your data, stores credentials, and maintains compliance.
+
+To report a suspected vulnerability, contact **security@pipedream.com**.
+
+## Compliance
+
+<Columns cols={2}>
+  <Card title="SOC 2 Type 2" icon="shield-check">
+    Pipedream is SOC 2 Type 2 certified. Request the full report by emailing security@pipedream.com.
+  </Card>
+  <Card title="GDPR" icon="file-shield">
+    Pipedream is GDPR compliant. Data processing agreements (DPAs) are available on request.
+  </Card>
+</Columns>
+
+## Encryption
+
+| What | How |
+|------|-----|
+| Data at rest | AES-256 encryption |
+| Data in transit | TLS 1.2 or higher |
+| Connected account credentials | Encrypted in a dedicated secrets management system |
+| Environment variables | Encrypted at rest |
+
+OAuth tokens for connected accounts are never exposed raw to workflow code. Access them via `this.app.$auth`, which injects only the values your code needs:
+
+```javascript
+export default defineComponent({
+  props: {
+    slack: {
+      type: "app",
+      app: "slack",
+    },
+  },
+  async run({ steps, $ }) {
+    // this.slack.$auth.oauth_access_token is securely injected at runtime
+    const token = this.slack.$auth.oauth_access_token;
+  },
+});
+```
+
+## Isolation
+
+Each customer's workflow code runs in an isolated execution environment. Source code and execution logs are not accessible across accounts.
+
+## Connected account security
+
+- OAuth tokens are stored encrypted and rotated automatically when providers issue refresh tokens.
+- API keys stored via Pipedream Connect are encrypted at rest and never logged.
+- Revoking a connected account via the dashboard or API immediately invalidates stored credentials.
+
+## Environment variables
+
+Environment variables set in the Pipedream dashboard are:
+
+- Encrypted at rest
+- Injected at runtime only to the steps that reference them
+- Never included in execution logs
+
+Set environment variables at [https://pipedream.com/settings/env-vars](https://pipedream.com/settings/env-vars).
+
+## Data residency
+
+Pipedream currently operates in the United States. Enterprise customers can discuss custom data residency requirements as part of their contract.
+
+## Vulnerability disclosure
+
+If you discover a security vulnerability in Pipedream:
+
+<Steps>
+  <Step title="Email security@pipedream.com">
+    Include a description of the vulnerability, steps to reproduce, and the potential impact.
+  </Step>
+  <Step title="Do not disclose publicly">
+    Please give us a reasonable time to investigate and remediate before public disclosure.
+  </Step>
+  <Step title="We will acknowledge within 48 hours">
+    Our security team will acknowledge receipt and provide a timeline for resolution.
+  </Step>
+</Steps>
+
+<Warning>
+Do not test for vulnerabilities against other users' accounts or data. Only test against accounts you own.
+</Warning>

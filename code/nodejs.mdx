@@ -1,0 +1,264 @@
+---
+title: "Node.js"
+description: "Run Node.js (v20) in any workflow step. Import any npm package, connect to 2,800+ apps, and reference data from any prior step."
+keywords: ["Node.js", "JavaScript", "npm", "custom code", "defineComponent"]
+---
+
+Node.js steps use the `defineComponent` wrapper, which gives you access to typed props, connected app credentials, and the `$` helper object.
+
+## Basic structure
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // steps — data from all prior steps
+    // $     — helper for exports, flow control, HTTP responses
+    return "hello from Node.js";
+  },
+});
+```
+
+## Importing npm packages
+
+Declare imports at the top of the file. Pipedream resolves and installs packages at deploy time — no `package.json` required.
+
+```javascript
+import axios from "axios";
+import { parseISO, formatDistance } from "date-fns";
+import _ from "lodash";
+import * as cheerio from "cheerio";
+
+export default defineComponent({
+  async run({ steps, $ }) {
+    const res = await axios.get("https://news.ycombinator.com/rss");
+    const $ = cheerio.load(res.data, { xmlMode: true });
+
+    const items = [];
+    $("item").each((_, el) => {
+      items.push({
+        title:   $(el).find("title").text(),
+        link:    $(el).find("link").text(),
+        pubDate: $(el).find("pubDate").text(),
+      });
+    });
+
+    return _.take(items, 10);
+  },
+});
+```
+
+<Note>
+  Pipedream runs Node.js 20. ESM (`import`) and CommonJS (`require`) are both supported.
+</Note>
+
+## Accessing prior step data
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Trigger event
+    const { body, headers } = steps.trigger.event;
+
+    // Return value from a previous step named "fetch_user"
+    const user = steps.fetch_user.$return_value;
+
+    // Named export from a step named "enrich"
+    const score = steps.enrich.risk_score;
+
+    return { userId: user.id, score, body };
+  },
+});
+```
+
+## Connected apps
+
+Authenticate to any of Pipedream's 2,800+ app integrations by declaring an `app` prop. Credentials are injected at runtime.
+
+```javascript
+import { WebClient } from "@slack/web-api";
+import { Octokit } from "@octokit/rest";
+
+export default defineComponent({
+  props: {
+    slack:  { type: "app", app: "slack" },
+    github: { type: "app", app: "github" },
+  },
+  async run({ steps, $ }) {
+    // Post a Slack message when a GitHub PR is merged
+    const pr = steps.trigger.event;
+    if (pr.merged !== true) {
+      $.flow.exit("PR not merged — skipping");
+    }
+
+    const octokit = new Octokit({ auth: this.github.$auth.oauth_access_token });
+    const slack   = new WebClient(this.slack.$auth.oauth_access_token);
+
+    // Fetch PR review comments
+    const { data: comments } = await octokit.pulls.listReviewComments({
+      owner:       pr.base.repo.owner.login,
+      repo:        pr.base.repo.name,
+      pull_number: pr.number,
+    });
+
+    await slack.chat.postMessage({
+      channel: "#deployments",
+      text: `:merged: *${pr.title}* merged by ${pr.merged_by.login}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `:merged: *<${pr.html_url}|${pr.title}>* merged by *${pr.merged_by.login}*\n${comments.length} review comment(s)`,
+          },
+        },
+      ],
+    });
+
+    return { prNumber: pr.number, commentCount: comments.length };
+  },
+});
+```
+
+## Making HTTP requests with `@pipedream/platform`
+
+The `axios` helper from `@pipedream/platform` automatically logs requests to the step's execution summary and surfaces errors clearly.
+
+```javascript
+import { axios } from "@pipedream/platform";
+
+export default defineComponent({
+  async run({ steps, $ }) {
+    const response = await axios($, {
+      method: "POST",
+      url: "https://api.example.com/events",
+      headers: {
+        Authorization: `Bearer ${process.env.EVENTS_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      data: {
+        type:      steps.trigger.event.body.type,
+        userId:    steps.trigger.event.body.userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    return response;
+  },
+});
+```
+
+## Exporting named values
+
+Use `$.export` to export multiple named values from a single step:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const res = await fetch("https://api.example.com/billing/summary");
+    const billing = await res.json();
+
+    $.export("mrr",      billing.mrr);
+    $.export("churn",    billing.churn_rate);
+    $.export("customers", billing.active_customers);
+
+    // $return_value is separate from named exports
+    return { fetched_at: new Date().toISOString() };
+  },
+});
+```
+
+Access these in the next step:
+
+```javascript
+const mrr       = steps.billing_summary.mrr;
+const churn     = steps.billing_summary.churn;
+const customers = steps.billing_summary.customers;
+```
+
+## Flow control
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const event = steps.trigger.event.body;
+
+    // Stop the workflow cleanly (not an error)
+    if (event.test === true) {
+      $.flow.exit("Ignoring test events");
+    }
+
+    // Delay execution (useful in multi-step retry patterns)
+    // $.flow.delay(ms) — available on paid plans
+
+    return event;
+  },
+});
+```
+
+## Async/await and parallel requests
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const userIds = steps.trigger.event.body.userIds;
+
+    // Fan out: fetch all users in parallel
+    const users = await Promise.all(
+      userIds.map((id) =>
+        fetch(`https://api.example.com/users/${id}`).then((r) => r.json())
+      )
+    );
+
+    // Filter and transform
+    const activeUsers = users
+      .filter((u) => u.status === "active")
+      .map(({ id, email, plan }) => ({ id, email, plan }));
+
+    return { total: users.length, active: activeUsers };
+  },
+});
+```
+
+## Environment variables
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    // Access variables set in Project Settings → Environment Variables
+    const apiKey    = process.env.MY_SERVICE_API_KEY;
+    const region    = process.env.AWS_REGION ?? "us-east-1";
+    const featureOn = process.env.ENABLE_BETA === "true";
+
+    return { region, featureOn };
+  },
+});
+```
+
+## Sending to destinations
+
+Deliver data asynchronously to S3, HTTP endpoints, or email without blocking your workflow:
+
+```javascript
+export default defineComponent({
+  async run({ steps, $ }) {
+    const record = steps.transform.$return_value;
+
+    // S3
+    $send.s3({
+      bucket:  "acme-pipeline-events",
+      prefix:  `events/${new Date().toISOString().slice(0, 10)}/`,
+      payload: record,
+    });
+
+    // HTTP
+    $send.http({
+      method:  "POST",
+      url:     "https://ingest.example.com/v1/events",
+      headers: { Authorization: `Bearer ${process.env.INGEST_KEY}` },
+      body:    record,
+    });
+
+    return record;
+  },
+});
+```
